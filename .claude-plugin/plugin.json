@@ -1,0 +1,8 @@
+{
+  "name": "abgregs-skills",
+  "skills": [
+    "./doc-driven-dev/skills/brief",
+    "./doc-driven-dev/skills/debrief",
+    "./doc-driven-dev/skills/setup-docs"
+  ]
+}
