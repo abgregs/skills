@@ -25,24 +25,35 @@ First, assess what doc structure exists:
 
 For each relevant doc, assess:
 - **Still accurate?** Does the doc still correctly describe how things work after these changes?
-- **Still complete?** Are there new patterns, conventions, or decisions introduced by the changes that aren't documented?
+- **Still complete?** Are there new patterns, conventions, or rule changes introduced by the changes that aren't documented (including the **Why:** for any rule that replaces an existing one)?
 - **Still relevant?** Did the changes make any documented convention obsolete?
 
 ### Step 3: Propose doc updates
 
-Present a clear list of proposed doc changes, grouped by type:
+First, classify each proposed update as one of:
+
+- **New rule** — adds a convention/architecture/requirement that didn't exist before
+- **Replacement** — overwrites or contradicts an existing rule (the previous way is no longer how we do it)
+- **Clarification** — refines or expands an existing rule without changing its substance
+- **Removal** — drops a rule that's no longer applicable
+
+The classification drives the **Why:** requirement on the new or revised rule:
+
+- **Replacements require a one-line `**Why:**` annotation.** When a rule replaces an existing one, future tasks need to know what changed and why — otherwise an agent encountering old code, partial migrations, or familiar-looking patterns may drift back to the previous approach. The Why is mandatory, not optional.
+- **New rules should include a `**Why:**` annotation when the rationale isn't obvious from the rule itself.** Heuristic: if a contributor reading the rule cold would ask "why?", add the line.
+- **Clarifications and removals** don't require a Why, but include one if the change was driven by a specific incident or constraint worth preserving.
+
+Then present the proposed changes, grouped by type:
 
 **Updates needed:**
 ```
-Update `docs/conventions/components.md`:
-- Add new pattern for X (introduced in this task)
-- Remove reference to Y (no longer used)
-
-New file `docs/decisions/use-canvas-for-charts.md`:
-- Document why we chose canvas over SVG for chart rendering
+Update `docs/conventions/dates-and-times.md`:
+- Replace "store and pass timestamps in the user's local time" with "store and pass timestamps in UTC; convert to local time only at the display boundary"
+  **Why:** removes timezone math from every internal layer and stops DST-driven off-by-one bugs at integration points
+- Remove the example showing a Date object passed straight from the form into storage
 
 Update `docs/conventions/_index.md`:
-- Add entry for new file
+- Update the dates-and-times summary to reflect the UTC boundary rule
 ```
 
 If no updates are needed, say so explicitly and explain why the existing docs already cover the changes.
@@ -70,7 +81,7 @@ After updates are complete, do a maintenance pass covering both structure and co
 
 **Content checks:**
 6. Inconsistencies — do any docs contradict each other or describe patterns that no longer exist in the code?
-7. Missing cross-references — do related docs in different categories link to each other? (e.g., a decision doc should link to the convention it produced)
+7. Missing cross-references — do related docs in different categories link to each other? (e.g., a convention should link to the architecture doc it depends on; a requirement should link to the conventions that govern its implementation)
 8. Stale claims — do any docs reference files, functions, or patterns that have been renamed or removed?
 
 Report the health check results. Fix any issues found (with user confirmation for non-trivial changes).

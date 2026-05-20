@@ -18,15 +18,13 @@ docs/
 │   └── _index.md
 ├── architecture/          # How the system is structured and why
 │   └── _index.md
-├── decisions/             # ADR-style — why we chose X over Y
-│   └── _index.md
 ├── requirements/          # Feature specs, constraints, acceptance criteria
 │   └── _index.md
 └── planning/              # Active and future work
     └── _index.md
 ```
 
-Each folder has an `_index.md` TOC. Files are kebab-case, single-topic, max ~150 lines. Each `_index.md` entry includes a brief summary so the agent can triage relevance without opening every file. Docs should cross-reference related docs (e.g., a decision doc links to the convention it produced).
+Each folder has an `_index.md` TOC. Files are kebab-case, single-topic, max ~150 lines. Each `_index.md` entry includes a brief summary so the agent can triage relevance without opening every file. Docs should cross-reference related docs (e.g., a convention links to the architecture it depends on). Rules within docs may include a **Why:** annotation capturing the rationale — these are load-bearing, especially for rules that replaced an earlier convention.
 
 ## Workflow
 
@@ -53,6 +51,7 @@ List every convention, rule, pattern, or requirement from the docs that applies 
 From `docs/conventions/components.md`:
 - Rule 1
 - Rule 2
+  **Why:** brief rationale (carry forward verbatim from the source doc when present)
 
 From `docs/architecture/data-flow.md`:
 - Rule 3
@@ -60,6 +59,8 @@ From `docs/architecture/data-flow.md`:
 From `CLAUDE.md`:
 - Rule 4
 ```
+
+When a rule has a **Why:** annotation in the source doc, carry it forward verbatim. The rationale often determines how to handle edge cases the rule doesn't explicitly cover, and rules that replaced earlier conventions carry rationale that prevents regression to the old pattern.
 
 If docs exist but in a different structure (no `_index.md`, flat folder, different naming), still extract the applicable rules — just note the structural gaps as findings for `/debrief`.
 

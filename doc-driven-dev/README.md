@@ -47,7 +47,6 @@ docs/
 ├── _index.md              # Root TOC
 ├── conventions/           # How to write code
 ├── architecture/          # How the system works
-├── decisions/             # Why we chose X (ADR-style)
 ├── requirements/          # Feature specs
 └── planning/              # Active and future work
 ```

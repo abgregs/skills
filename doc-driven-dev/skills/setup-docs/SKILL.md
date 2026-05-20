@@ -18,8 +18,6 @@ docs/
 │   └── _index.md
 ├── architecture/          # How the system is structured and why
 │   └── _index.md
-├── decisions/             # ADR-style — why we chose X over Y
-│   └── _index.md
 ├── requirements/          # Feature specs, constraints, acceptance criteria
 │   └── _index.md
 └── planning/              # Active and future work
@@ -31,7 +29,8 @@ docs/
 - Files: kebab-case, single-topic, max ~150 lines
 - If a file grows past ~150 lines, split by subtopic and update `_index.md`
 - No orphan files — every doc must be listed in its folder's `_index.md`
-- Cross-references: docs should link to related docs in other categories (e.g., a decision doc links to the convention it produced, a convention doc links to the architecture it depends on)
+- Cross-references: docs should link to related docs in other categories (e.g., a convention links to the architecture it depends on; a requirement links to the conventions that govern its implementation)
+- Rules within docs should include a brief **Why:** annotation where the rationale isn't obvious. Required when a rule deliberately deviates from a common-pattern default (e.g., "we don't use X even though most projects do") — future agents and contributors need the rationale to avoid regressing to the default.
 
 ## Workflow
 
@@ -73,7 +72,7 @@ Only then proceed to filling gaps.
 Go through the must-have categories one at a time. Skip categories that are already well-covered from the reorganization. For each:
 
 1. **Explore the codebase** for evidence — look at code patterns, config, existing comments, CLAUDE.md rules
-2. **Propose content** based on what you find — draft the conventions/architecture/decisions you can infer
+2. **Propose content** based on what you find — draft the conventions and architecture you can infer, including a brief **Why:** annotation on any rule whose rationale isn't obvious from the rule itself
 3. **Ask the user** to confirm, correct, or expand — one question at a time
 4. **Write the doc** once confirmed
 5. **Update the folder's `_index.md`**
@@ -81,9 +80,8 @@ Go through the must-have categories one at a time. Skip categories that are alre
 **Category order:**
 1. `conventions/` — styling, components, data patterns, imports, git conventions
 2. `architecture/` — data flow, auth, DB patterns, key structural decisions
-3. `decisions/` — non-obvious tech choices (libraries, patterns, overrides)
-4. `requirements/` — active feature specs or constraints (skip if none exist yet)
-5. `planning/` — audit existing planning docs if they exist, add `_index.md` if missing
+3. `requirements/` — active feature specs or constraints (skip if none exist yet)
+4. `planning/` — audit existing planning docs if they exist, add `_index.md` if missing
 
 For each category, ask: "What else belongs here that I haven't covered?" before moving on.
 
