@@ -7,6 +7,7 @@ A collection of AI coding skills organized by skill group. Each group is a cohes
 | Group | Skills | Description |
 |-------|--------|-------------|
 | [doc-driven-dev](./doc-driven-dev/) | `/brief`, `/debrief`, `/setup-docs` | Keep docs aligned with code |
+| [scope-shaping](./scope-shaping/) | `/sweep` | Widen narrowly-stated tasks to cover related work in the same domain |
 
 ## Install
 
@@ -63,10 +64,10 @@ skills/
 │       ├── debrief/SKILL.md
 │       └── setup-docs/SKILL.md
 │
-└── <another-group>/             # future skill groups
+└── scope-shaping/               # skill group
     ├── README.md
     └── skills/
-        └── <skill>/SKILL.md
+        └── sweep/SKILL.md
 ```
 
 ## Adding a New Skill Group
