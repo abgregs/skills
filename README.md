@@ -7,6 +7,7 @@ A collection of AI coding skills organized by skill group. Each group is a cohes
 | Group | Skills | Description |
 |-------|--------|-------------|
 | [doc-driven-dev](./doc-driven-dev/) | `/brief`, `/debrief`, `/setup-docs` | Keep docs aligned with code |
+| [git-workflows](./git-workflows/) | `/git-commit` | Autonomous conventional commits with concise messages |
 | [orchestration](./orchestration/) | `/model-routing` | Route delegated work to the right model and effort level |
 | [scope-shaping](./scope-shaping/) | `/sweep` | Widen narrowly-stated tasks to cover related work in the same domain |
 
@@ -64,6 +65,11 @@ skills/
 │       ├── brief/SKILL.md
 │       ├── debrief/SKILL.md
 │       └── setup-docs/SKILL.md
+│
+├── git-workflows/               # skill group
+│   ├── README.md
+│   └── skills/
+│       └── git-commit/SKILL.md
 │
 ├── orchestration/               # skill group
 │   ├── README.md
