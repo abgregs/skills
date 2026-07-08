@@ -14,7 +14,7 @@ You are creating git commits with well-crafted conventional commit messages.
 - Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config)
 - Subject line under 72 characters; no emojis, no Claude references, no parentheses or other special characters in the description (beyond the `type(scope):` prefix)
 - Body only when it adds information: blank line after the subject, dash bullets, backticks around `file`, `function`, and variable names
-- **Keep bodies concise**: 2–4 bullets, each one compact line — trim any bullet pushing past ~72 characters, and omit the body entirely for simple changes. If the user explicitly staged a large changeset to go in a single commit, more bullets (5+) are acceptable, but each stays short, plain, and readable.
+- **Keep bodies concise**: 2–4 bullets, each one compact line — trim any bullet pushing past ~72 characters, and omit the body entirely for simple changes. If the user explicitly staged a large changeset to go in a single commit, the body may exceed 4 bullets — but never 8, a hard cap with no exceptions; each bullet stays short, plain, and readable. When 8 isn't enough, summarize at a higher level rather than enumerating.
 
 ## Workflow
 
