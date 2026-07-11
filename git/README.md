@@ -1,4 +1,4 @@
-# git-workflows
+# git
 
 AI coding skills for git hygiene. Well-formed conventional commits and clean history without manual message-writing or babysitting the staging area.
 
@@ -13,7 +13,7 @@ AI coding skills for git hygiene. Well-formed conventional commits and clean his
 ### Via skills CLI (any supported agent)
 
 ```bash
-npx skills@latest add abgregs/skills/git-workflows
+npx skills@latest add abgregs/skills/git
 ```
 
 Or install individual skills:
