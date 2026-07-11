@@ -75,6 +75,14 @@ Effort in brief: `low` subagents/simple · `medium` cost/quality balance · `hig
 - Keep the orchestrator on one model (preserves prompt cache); delegate the cheap work rather than switching the main loop mid-session.
 - **Know your levers per context.** API pipelines (user-built code): all levers — model, effort, Batch, caching. In-session `Workflow agent()`: model + effort. In-session `Agent` tool: **model only** (effort inherits the session — don't promise effort assignments an `Agent` spawn can't honor). Batch/caching never apply to in-session spawns; flag them only for API-pipeline subtasks.
 
+## Effort Parameter Caveat
+
+When routing subagents in Workflow scripts, you can pass an `effort` parameter (e.g., `agent(prompt, {model: "claude-opus-4-8", effort: "high"})`). **However, there is currently no audit trail in the response metadata.** The API does not echo back which effort level was actually used by the subagent — you cannot verify post-execution whether your `effort` assignment was honored or what impact it had relative to other factors (thinking depth, task complexity, etc.).
+
+This is a known limitation. The rubric includes `effort` assignments as a desirable optimization layer, but accept that you cannot audit whether subagents actually used the effort level you specified. For now, treat effort assignments as intent — log them yourself if correctness or cost auditing is critical, and understand that verification is manual correlation of token counts against your logged requests, not a reliable inference from response data.
+
+**This caveat does NOT apply to effort on the main session** — if you control the session model directly, effort works as intended and you observe the token cost tradeoff in the response.
+
 ## Honesty
 
 Pricing, batch discount, and cache multipliers are exact (published). Task-fit and effort cells are directional Anthropic guidance — no public model×effort×task benchmark exists; sweep `medium`/`high`/`xhigh` on your own evals per route.

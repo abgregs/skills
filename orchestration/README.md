@@ -33,3 +33,13 @@ Clone the skills repo and symlink this group via the shared linker script in the
 - Manually invoke `/model-routing <task>` to get a decomposed plan with a model + effort assignment per subtask
 - Let the model consult it mid-task whenever it's about to spawn subagents or author a Workflow, so routed spawns always pin an appropriate model
 - Run `/model-routing audit` periodically to check that spawns are actually being routed, not silently inheriting the session model
+
+## Enforcing model routing
+
+Model routing is most effective when **consulted automatically by the main agent during orchestration**, not left to the user to remember. For stronger enforcement:
+
+- **In CLAUDE.md or your project's agent guidelines**, add a one-liner rule: "Before spawning subagents or fanning out work, consult `/model-routing` and pass `model:` explicitly on every spawn, even if it matches the session model."
+- This ensures the skill is invoked consistently without requiring the user to type `/model-routing` each time.
+- Pair it with periodic `/model-routing audit` runs to verify that spawns are actually being routed (explicit `model:` parameter in transcripts), not silently defaulting to the session model.
+
+Without this rule, model routing is optional — subagents will inherit the session model by default, potentially running expensive work on an over-provisioned harness.
