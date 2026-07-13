@@ -1,7 +1,7 @@
 ---
 name: git-commit
 description: Generate conventional commit messages and execute commits autonomously. Use when the user is committing code or asks for a commit message. Commits staged changes as one commit (single mode), splits unstaged changes into logical commits (grouped mode), or interactively amends the last commit (--amend).
-argument-hint: (optional commit type, flags, or --amend)
+argument-hint: "Optional — commit type, flags, or --amend"
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Edit
 ---
 

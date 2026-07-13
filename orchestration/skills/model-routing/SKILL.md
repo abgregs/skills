@@ -1,7 +1,7 @@
 ---
 name: model-routing
 description: Cost-optimized routing rubric for assigning work to the right Claude model and effort level. Use when deciding which model or effort to run a task at, when spawning subagents or delegating subtasks, when authoring a Workflow/orchestration that fans out work across agents, or when the user asks "which model should I use" / "what effort level" / "route this task". Priority is cost savings without sacrificing quality.
-argument-hint: [optional — paste the task/subtasks to route; omit to just show the rubric]
+argument-hint: "Optional — paste the task/subtasks to route; omit to just show the rubric"
 ---
 
 # Model Routing — cost-optimized model + effort selection
