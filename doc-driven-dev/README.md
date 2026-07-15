@@ -53,6 +53,8 @@ docs/
 
 Each folder has an `_index.md` with entries and summaries. Files are kebab-case, single-topic, max ~150 lines.
 
+The root `_index.md` also holds a **cross-cutting axes** list — concerns whose rules span multiple docs (data lifecycle, caching, auth, time handling, etc.), bootstrapped by `/setup-docs` and confirmed by you. Each `/debrief` audits one axis across the whole corpus — chosen from the diff when it implicates one, otherwise least-recently-audited, or named explicitly in the `/debrief` arguments — to catch rules that are individually correct but coexist badly (e.g. a caching TTL that violates a data-deletion SLA). Single-topic docs keep per-task reading cheap, but that same fragmentation hides conflicts between files; the rotating audit is the counterweight.
+
 **Start with `/setup-docs`** to bootstrap this structure for a new project, then use `/brief` before tasks and `/debrief` after.
 
 ### Recommended CLAUDE.md integration

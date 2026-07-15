@@ -84,6 +84,14 @@ After updates are complete, do a maintenance pass covering both structure and co
 7. Missing cross-references — do related docs in different categories link to each other? (e.g., a convention should link to the architecture doc it depends on; a requirement should link to the conventions that govern its implementation)
 8. Stale claims — do any docs reference files, functions, or patterns that have been renamed or removed?
 
+**Cross-cutting axis audit (one axis per debrief):**
+
+9. Read the `## Cross-cutting axes` section of `docs/_index.md`. Select ONE axis: if `$ARGUMENTS` names one, use it; otherwise prefer the axis most implicated by this task's diff; otherwise the least-recently-audited. If the section is missing, derive candidate axes from the corpus (recurring nouns and shared resources across `_index.md` summaries), confirm with the user, and create it.
+10. Sweep the whole corpus for rules touching the selected axis, regardless of category — use `_index.md` summaries to shortlist, then read the matches. Evaluate whether the rules *compose*: rules can be individually accurate yet coexist badly (e.g. "cache API responses for 1 hour" and "account deletion propagates within 15 minutes" conflict without either being wrong). Report bad compositions as proposed doc updates, classified per Step 3.
+11. Update the selected axis's `last audited:` date. If the task revealed a new cross-cutting concern, propose adding it to the list.
+
+**Why:** debrief's traversal is diff-scoped, so rules in docs never read together can conflict undetected; auditing one persisted axis per run bounds the cost while coverage accumulates across sessions.
+
 Report the health check results. Fix any issues found (with user confirmation for non-trivial changes).
 
 **Incremental structural improvements (max 1-2 per debrief):**
@@ -102,6 +110,7 @@ Present a final summary:
 - Docs updated (with brief description of each change)
 - Docs created (with brief description)
 - Health check results (clean, or issues fixed)
+- Axis audited, with any coexistence findings
 - Any open items that need attention later
 
 ## Important

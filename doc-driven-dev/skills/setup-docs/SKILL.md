@@ -89,6 +89,9 @@ For each category, ask: "What else belongs here that I haven't covered?" before 
 
 After all categories are populated, create or update `docs/_index.md` with a complete map of the structure.
 
+Then derive the project's **cross-cutting axes** — concerns whose rules span multiple docs or categories (e.g. data lifecycle, caching/staleness, auth/revocation, time handling, error propagation). Propose candidates from evidence: recurring nouns and shared resources across the docs just written. Confirm with the user, then record them in a `## Cross-cutting axes` section of `docs/_index.md`, one line per axis with a `last audited:` date (`never` for new axes). `/debrief` audits one axis per run to catch rules that are individually correct but compose badly across docs.
+**Why:** task-scoped doc traversal only reads diff-adjacent files, so conflicts between rules in unrelated docs are invisible without a cross-cutting sweep; persisting the list keeps the rotation stable so audit coverage accumulates across sessions.
+
 ### Step 5: Migration check
 
 If conventions currently live in `CLAUDE.md` that would be better placed in `docs/`:
