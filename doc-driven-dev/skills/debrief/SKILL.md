@@ -22,6 +22,11 @@ First, assess what doc structure exists:
 2. If it doesn't, fall back to `Glob` for `docs/**/*.md` and scan what's there
 3. Read specific docs that relate to the areas of code that changed
 4. Also review `CLAUDE.md` for any rules that were touched
+5. **Read from disk, in full — never from memory.** Every doc you assess must
+   be freshly `Read` end-to-end during this debrief. This applies most of all
+   to docs you yourself wrote or edited earlier in the session: those are the
+   ones most likely to be "reviewed" from conversation memory — which is no
+   review at all, since memory predates the newest decisions.
 
 For each relevant doc, assess:
 - **Still accurate?** Does the doc still correctly describe how things work after these changes?
@@ -79,10 +84,26 @@ After updates are complete, do a maintenance pass covering both structure and co
 4. File sizes — flag any doc over ~150 lines that should be split
 5. If any `_index.md` is missing from a folder that has docs, create it
 
-**Content checks:**
-6. Inconsistencies — do any docs contradict each other or describe patterns that no longer exist in the code?
-7. Missing cross-references — do related docs in different categories link to each other? (e.g., a convention should link to the architecture doc it depends on; a requirement should link to the conventions that govern its implementation)
-8. Stale claims — do any docs reference files, functions, or patterns that have been renamed or removed?
+**Content checks — run these as procedures, not assessments.** An assessment
+question ("is anything stale?") invites "looks fine"; a search produces
+findings. Each of the following must be executed with actual tool calls:
+
+6. **Retired-terms sweep.** Write down the vocabulary this task's decisions
+   retired or renamed — old rule/feature/state names, superseded counts and
+   values ("four emails" after a change to three), replaced mechanism names,
+   outdated date stamps. Grep the ENTIRE docs corpus for each term. Every hit
+   is either fixed or explicitly justified in the report (a frozen artifact, a
+   **Why:** clause recording history). An empty retired-terms list is only
+   plausible when the task changed no rules or names.
+7. **Referrer closure.** For each doc changed (by the task or by this
+   debrief), grep the corpus for inbound references — links to the file AND
+   mentions of its concepts — and read every referrer. The usual laggards:
+   `_index.md` summaries, living status docs (`current_focus.md` and kin),
+   and sibling docs in other categories. While there, verify freshness stamps
+   ("Updated YYYY-MM-DD") on every doc touched.
+8. **Inconsistencies & cross-references** — do any docs contradict each other;
+   do related docs in different categories link to each other? (e.g., a
+   convention links the architecture doc it depends on)
 
 **Cross-cutting axis audit (one axis per debrief):**
 
@@ -104,18 +125,29 @@ If the doc structure doesn't match the target architecture, propose one or two s
 
 Do not attempt a full restructure — keep it incremental so it doesn't overwhelm the debrief. If the structure needs significant work (missing categories, no index files, docs scattered outside `docs/`), recommend `/setup-docs` for a dedicated pass.
 
-### Step 6: Summary
+### Step 6: Adversarial second pass, then summary
+
+Before writing the summary, assume the user's next message will be:
+"double-check for stale items and cross-cutting concerns, just to be extra
+sure." Run that follow-up NOW, inside this debrief: redo the retired-terms
+sweep and referrer closure with fresh greps and fresh full reads of the two
+or three most-edited docs, deliberately trying to prove the first pass
+missed something. Fold anything found into this debrief's fixes. The
+quality bar for this skill is that a real "be extra sure" follow-up finds
+nothing — empirically, a casual single pass does not meet it.
 
 Present a final summary:
 - Docs updated (with brief description of each change)
 - Docs created (with brief description)
-- Health check results (clean, or issues fixed)
+- Health check results (clean, or issues fixed), each with its evidence
+- Second-pass findings — what the adversarial re-sweep caught, or "nothing; first pass held"
 - Axis audited, with any coexistence findings
 - Any open items that need attention later
 
 ## Important
 
 - Do NOT skip the review even if the changes seem minor — small changes can invalidate docs
+- **Every health-check item in the report must cite its evidence** — the grep that was run or the file that was read. "Checked, no issues" with no named check is not a result; it is the exact failure mode this skill exists to prevent.
 - Do NOT delete doc content without user confirmation
 - Prefer updating existing docs over creating new ones — only create new files when the topic genuinely doesn't fit anywhere
 - Keep `_index.md` files concise — one line per entry with a brief summary (summaries are how the agent triages relevance without opening every file)
