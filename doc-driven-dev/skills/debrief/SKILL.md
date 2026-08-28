@@ -84,23 +84,33 @@ After updates are complete, do a maintenance pass covering both structure and co
 4. File sizes — flag any doc over ~150 lines that should be split
 5. If any `_index.md` is missing from a folder that has docs, create it
 
-**Content checks — run these as procedures, not assessments.** An assessment
-question ("is anything stale?") invites "looks fine"; a search produces
-findings. Each of the following must be executed with actual tool calls:
+**Content checks — detector + judge.** Enumeration is done by the bundled
+script, which cannot skip steps or decide something "looked fine"; the
+model's job is judgment on its output, never re-deriving the enumeration by
+hand. (Token note: the script's report scales with findings, not corpus
+size — the docs can grow 10× and this step's context cost does not.)
 
-6. **Retired-terms sweep.** Write down the vocabulary this task's decisions
-   retired or renamed — old rule/feature/state names, superseded counts and
-   values ("four emails" after a change to three), replaced mechanism names,
-   outdated date stamps. Grep the ENTIRE docs corpus for each term. Every hit
-   is either fixed or explicitly justified in the report (a frozen artifact, a
-   **Why:** clause recording history). An empty retired-terms list is only
-   plausible when the task changed no rules or names.
-7. **Referrer closure.** For each doc changed (by the task or by this
-   debrief), grep the corpus for inbound references — links to the file AND
-   mentions of its concepts — and read every referrer. The usual laggards:
-   `_index.md` summaries, living status docs (`current_focus.md` and kin),
-   and sibling docs in other categories. While there, verify freshness stamps
-   ("Updated YYYY-MM-DD") on every doc touched.
+6. **Run the detector**: `bash <skill-base-dir>/scripts/doc-sweep.sh` from
+   inside the project repo (the skill's base directory is announced when this
+   skill loads). It derives retired-term candidates mechanically from the
+   diff since the last sweep (terms on removed lines absent from added
+   lines), greps the whole corpus for each, lists referrers of changed docs
+   (file links and heading mentions), prints freshness stamps against
+   last-commit dates, and runs the structural checks (dead links, orphans,
+   files over 150 lines). Its output IS the evidence for these checks.
+7. **Adjudicate every hit — the judge half.** Each retired-term hit and
+   referrer gets an explicit verdict: FIX, or JUSTIFY (frozen artifact,
+   **Why:** clause recording history, same word in a different sense — e.g.
+   a rule that bans "resets" legitimately contains the word). Dismissing a
+   false positive costs one line; silently omitting a hit is non-compliance.
+   Then cover the detector's two blind spots yourself:
+   (a) **session-decision terms** — vocabulary retired by THIS session's
+   decisions that isn't on disk yet (a diff cannot see chat); append them and
+   grep the corpus for each;
+   (b) **semantic staleness and absences** — read the two or three
+   most-edited docs end-to-end, hunting for dead-model semantics written in
+   fresh words and for missing entries (an incomplete list has no string to
+   grep for).
 8. **Inconsistencies & cross-references** — do any docs contradict each other;
    do related docs in different categories link to each other? (e.g., a
    convention links the architecture doc it depends on)
@@ -129,12 +139,17 @@ Do not attempt a full restructure — keep it incremental so it doesn't overwhel
 
 Before writing the summary, assume the user's next message will be:
 "double-check for stale items and cross-cutting concerns, just to be extra
-sure." Run that follow-up NOW, inside this debrief: redo the retired-terms
-sweep and referrer closure with fresh greps and fresh full reads of the two
-or three most-edited docs, deliberately trying to prove the first pass
-missed something. Fold anything found into this debrief's fixes. The
-quality bar for this skill is that a real "be extra sure" follow-up finds
-nothing — empirically, a casual single pass does not meet it.
+sure." Run that follow-up NOW, inside this debrief: re-run the detector
+(it is cheap and any fixes just made may themselves have referrers), re-grep
+your session-decision terms, and take fresh full reads of the most-edited
+docs, deliberately trying to prove the first pass missed something. Fold
+anything found into this debrief's fixes. The quality bar for this skill is
+that a real "be extra sure" follow-up finds nothing — empirically, a casual
+single pass does not meet it.
+
+When the debrief is complete (fixes committed), run
+`bash <skill-base-dir>/scripts/doc-sweep.sh --mark` so the next debrief's
+diff starts from here.
 
 Present a final summary:
 - Docs updated (with brief description of each change)
