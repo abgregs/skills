@@ -18,15 +18,20 @@ You are creating git commits with well-crafted conventional commit messages.
 
 ## Workflow
 
-### 1. Preflight and mode detection
+### 1. Preflight and mode detection — run the detector
 
-Run in parallel: `git status --porcelain` and `git log --oneline -5` (match the branch's existing scope naming and tone).
+Run `bash <skill-base-dir>/scripts/commit-preflight.sh` (the skill's base
+directory is announced when this skill loads). One call replaces the manual
+status/log/conflict checks and emits: clean-tree and conflict aborts, the
+mode (single vs grouped), recent subjects (match their scope naming and
+tone), staged/unstaged/untracked stats, an oversized-diff warning, and
+suggested groupings by top-level path. Honor its aborts verbatim; treat its
+groupings as a starting point — the final grouping is your judgment.
 
-Abort if:
-- Nothing to commit (empty status, or only `??` lines) → say "Nothing to commit — working tree is clean." and stop
-- Unresolved conflicts (lines starting `UU`, `AA`, `DD`, `AU`, `UA`, `DU`, `UD`) → list the conflicting files and stop
-
-Mode: `--amend` argument → **Amend workflow** below. Staged changes exist → **single mode**: one commit for the staged changes only. Only unstaged changes → **grouped mode**: split into logical commits.
+Mode: `--amend` argument → **Amend workflow** below. Otherwise the preflight
+report states the mode: staged changes exist → **single mode** (one commit
+for the staged changes only); only unstaged changes → **grouped mode**
+(split into logical commits).
 
 ### 2. Analyze changes
 
@@ -51,14 +56,16 @@ For each commit:
    - Detail 1
    ─────────────────────────
    ```
-2. Execute with heredoc for multi-line support:
+2. Write the message to a temp file and **lint it — the format rules are
+   walls, not requests**:
    ```bash
-   git commit -m "$(cat <<'EOF'
-   type(scope): description
-
-   - Detail 1
-   EOF
-   )"
+   printf '%s\n' 'type(scope): description' '' '- Detail 1' > /tmp/commit-msg
+   bash <skill-base-dir>/scripts/commit-preflight.sh --lint /tmp/commit-msg
+   ```
+   On LINT FAIL: fix the message and re-lint — never commit a failing
+   message and never bypass the lint. Then commit with the linted file:
+   ```bash
+   git commit -F /tmp/commit-msg
    ```
 3. Verify with `git log -1 --oneline`. Grouped: move to the next group. Single: re-run `git status --porcelain`; if tracked changes remain (ignore `??` lines), loop from step 1 until clean.
 
