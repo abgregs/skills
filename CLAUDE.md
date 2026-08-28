@@ -28,8 +28,15 @@
   repo copy and `~/.claude/skills/` copy must both work.
 - Scripts are report generators: no `set -e`/pipefail (a zero-match grep must
   not abort remaining sections); handle real failures explicitly.
-- Editing a skill here does not update the installed copy — sync
-  `~/.claude/skills/<name>/` (SKILL.md and `scripts/`) after committing.
+- Editing a skill here does not update the installed copy. Publish flow:
+  commit → **push to GitHub** → re-run the `npx skills` install/update
+  command. The skills CLI syncs from the `abgregs/skills` remote (per-skill
+  folder hashes in `~/.agents/.skill-lock.json`) into `~/.agents/skills/`,
+  which `~/.claude/skills/` symlinks resolve to — so unpushed local commits
+  never reach the installed copies, and hand-copying into `~/.claude/skills`
+  is never the fix.
+  **Why:** replaces an earlier hand-sync instruction written before the
+  CLI-managed install was confirmed.
 
 ## Adding a skill
 
