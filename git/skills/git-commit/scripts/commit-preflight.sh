@@ -27,8 +27,8 @@ if [ "${1:-}" = "--lint" ]; then
   DESC="$(echo "$SUBJ" | sed -E "s/^($TYPES)(\([a-z0-9-]+\))?: //")"
   echo "$DESC" | grep -q '[][(){}]' && err "description contains parentheses/brackets (allowed only in the type(scope): prefix)"
   LC_ALL=C grep -qn '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis)"
-  grep -ni 'claude' "$MSG" | grep -vi '^[0-9]*:co-authored-by:' | grep -q . \
-    && err "message references Claude outside a Co-Authored-By trailer"
+  grep -ni 'claude' "$MSG" | grep -vi '^[0-9]*:co-authored-by:' | grep -vi 'claude\.md' | grep -q . \
+    && err "message references Claude outside a Co-Authored-By trailer (CLAUDE.md the filename is exempt)"
 
   if [ "$(wc -l < "$MSG")" -gt 1 ]; then
     [ -z "$(sed -n '2p' "$MSG")" ] || err "line 2 must be blank between subject and body"
