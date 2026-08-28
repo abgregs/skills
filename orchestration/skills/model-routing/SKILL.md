@@ -6,7 +6,7 @@ argument-hint: "Optional — paste the task/subtasks to route; omit to just show
 
 # Model Routing — cost-optimized model + effort selection
 
-Route each task to the **cheapest model + effort that meets the quality bar**; escalate only on observed insufficiency. Pricing/IDs below were **cached 2026-06-04** (from the `claude-api` skill catalog). Re-verify (via the `claude-api` skill or the Models API) when any concrete signal appears: today's date is ≳6 months past the cache date, the user names a model not in the table, a listed model 404s or rejects a documented param, or the user disputes a price. Absent those signals, trust the table.
+Route each task to the **cheapest model + effort that meets the quality bar**; escalate only on observed insufficiency. Pricing/IDs below were **re-verified 2026-08-28** against the `claude-api` skill catalog (catalog cache 2026-06-24; added Sonnet 5 and Opus 5). Re-verify (via the `claude-api` skill or the Models API) when any concrete signal appears: today's date is ≳6 months past the verification date, the user names a model not in the table, a listed model 404s or rejects a documented param, or the user disputes a price. Absent those signals, trust the table.
 
 ## Arguments
 
@@ -14,7 +14,7 @@ Route each task to the **cheapest model + effort that meets the quality bar**; e
 
 **Who plans — applies ONLY to explicit `/model-routing <task>` invocations.** If this skill loaded mid-task (you consulted it while orchestrating), skip this Who-plans block and the output format: apply the lookup table inline to the routing decision at hand — no delegation, nothing printed to the user. **Recursion guard:** if your prompt says you were spawned as the pinned planner, skip this Who-plans block only (the output format below still applies) and apply the rubric directly.
 
-Decomposition is intelligence-sensitive — route it like any subtask, to the top of the ladder: **Fable 5 → Opus 4.8 → Sonnet 4.6** (Haiku never plans).
+Decomposition is intelligence-sensitive — route it like any subtask, to the top of the ladder: **Fable 5 → Opus 5 → Sonnet 5** (Haiku never plans).
 
 1. Session model is Fable 5 (or the highest tier you know to be available) → plan in-context (no subagent overhead, keeps conversation context).
 2. Otherwise → spawn a subagent pinned to the highest tier above the session model (`Agent` tool, `model: "fable"` / `"opus"` / `"sonnet"`). Subagents start blank — nothing passes automatically, so the prompt you author must carry all three: (a) the task (`$ARGUMENTS`), (b) any session context the plan needs, and (c) the rubric — by instructing it to `Read` this skill's `SKILL.md` at the base directory announced when the skill loaded (substitute the actual absolute path into the subagent prompt) and apply the lookup table, noting it is the pinned planner (don't paste the rubric; the file is the single source of truth). Relay its plan.
@@ -30,16 +30,16 @@ Cheapest plan: …   Orthogonal savings: …   Escalate if: …
 
 ## Ladder & models
 
-**Haiku 4.5 → Sonnet 4.6 → Opus 4.8 → Fable 5.** Default one tier and one effort notch LOWER than instinct. On agentic work, higher effort can *cut* total cost by reducing turns — measure end-to-end, not per-call.
+**Haiku 4.5 → Sonnet 5 → Opus 5 → Fable 5.** Default one tier and one effort notch LOWER than instinct. On agentic work, higher effort can *cut* total cost by reducing turns — measure end-to-end, not per-call. Note the mid-tier repricing: Sonnet 5 is 2× Haiku (was 3× on Sonnet 4.6), so Sonnet `low` competes harder as the classify/extract escalation target.
 
 | Model | ID | $/1M in·out | Ctx / Max out | Effort |
 |---|---|---|---|---|
 | Haiku 4.5 | `claude-haiku-4-5` | 1 / 5 | 200K / 64K | none (sending it errors) |
-| Sonnet 4.6 | `claude-sonnet-4-6` | 3 / 15 | 1M / 64K | low–high, max — ⚠ **defaults to `high`; always set explicitly** |
-| Opus 4.8 | `claude-opus-4-8` | 5 / 25 | 1M / 128K | low–xhigh, max |
+| Sonnet 5 | `claude-sonnet-5` | 2 / 10 | 1M / 128K | low–xhigh, max — ⚠ **defaults to `high`; always set explicitly** |
+| Opus 5 | `claude-opus-5` | 5 / 25 | 1M / 128K | low–xhigh, max (thinking on by default; refusal classifiers — gotcha 4) |
 | Fable 5 | `claude-fable-5` | 10 / 50 | 1M / 128K | low–xhigh, max |
 
-Opus 4.6/4.7: same price as 4.8, superseded — only if version-pinned.
+Superseded — version-pinned use only: Opus 4.6/4.7/4.8 (same 5/25; **4.8 is also the security-work escape hatch, gotcha 4**) and Sonnet 4.6 (3/15 — costs MORE than its successor; never route new work there).
 
 ## SUBTASK → model + effort
 
@@ -49,10 +49,10 @@ Opus 4.6/4.7: same price as 4.8, superseded — only if version-pinned.
 | Summarize / chat / short content | Sonnet `low` (+ `thinking: disabled`) | Sonnet `medium` |
 | Routine coding (small, well-scoped) | Sonnet `medium` | Opus `high` |
 | Agentic / tool-heavy coding | Sonnet `medium` → Opus `xhigh` | Fable 5 `xhigh` |
-| Hard coding / refactors / long-horizon agents | Opus 4.8 `high`→`xhigh` (full spec up front) | Fable 5 |
-| Code review / bug-finding | Opus 4.8 `high`+ (report all, filter downstream) | Fable 5 — **never for security work** (gotcha 4) |
-| Computer use | Sonnet `high` + adaptive | Opus 4.8 |
-| Deep reasoning / correctness-critical | Opus 4.8 `max` | Fable 5 `high`/`xhigh` |
+| Hard coding / refactors / long-horizon agents | Opus 5 `high`→`xhigh` (full spec up front) | Fable 5 |
+| Code review / bug-finding | Opus 5 `high`+ (report all, filter downstream) | Fable 5 — **security work → Opus 4.8 instead** (gotcha 4) |
+| Computer use | Sonnet `high` + adaptive | Opus 5 |
+| Deep reasoning / correctness-critical | Opus 5 `max` | Fable 5 `high`/`xhigh` |
 | Hardest / research-grade | Fable 5 `high`→`xhigh` | Fable 5 `max` |
 | Parallel subagent fan-out | Haiku or Sonnet `low` | — |
 | Anything not listed | Nearest row above; genuinely not intelligence-bound (mechanical fetch / trigger / copy / poll) → Haiku 4.5 | — |
@@ -63,10 +63,11 @@ Effort in brief: `low` subagents/simple · `medium` cost/quality balance · `hig
 
 1. **Batch API: 50% off everything** async-tolerant (most <1h, max 24h). Check FIRST — usually beats any tier debate.
 2. **Prompt caching: ~0.1× on cached reads.** For repeated-context pipelines, beats a model downgrade with zero quality loss.
-3. **Capability gates:** >200K context → not Haiku; >64K output → Opus/Fable only (streamed).
-4. **Security/cyber & bio work: do NOT route to Fable 5** — safety classifiers refuse benign adjacent work. Use Opus 4.8, or add server-side `fallbacks` if Fable is required.
-5. **Fable 5 = 2× Opus price**: only when Opus 4.8 demonstrably falls short. Turns can run minutes, thinking can't be disabled, requires 30-day retention. Nuance: Fable `low` often ≥ prior models' `xhigh` — test; can be cost-competitive on deep work.
-6. **Sonnet's silent overpay:** effort defaults to `high` — set it explicitly on every Sonnet call.
+3. **Capability gates:** >200K context or >64K output → not Haiku (Sonnet 5, Opus 5, and Fable 5 all do 1M ctx / 128K out, streamed).
+4. **Security/cyber & bio work: do NOT route to Fable 5 *or* Opus 5** — both carry refusal classifiers that decline benign adjacent work. Use Opus 4.8 (the escape hatch that keeps 5-tier pricing), or add the server-side `fallbacks` parameter if Fable/Opus 5 is required — current guidance is to include `fallbacks` by default on Fable 5 and Opus 5 pipelines anyway.
+5. **Fable 5 = 2× Opus price**: only when Opus 5 demonstrably falls short. Turns can run minutes, thinking can't be disabled, requires 30-day retention. Nuance: Fable `low` often ≥ prior models' `xhigh` — test; can be cost-competitive on deep work.
+6. **Sonnet's silent overpay:** effort defaults to `high` — set it explicitly on every Sonnet call (applies to Sonnet 5 unchanged).
+7. **Latency levers, priced:** fast mode (Opus 5/4.8 only, Claude API only) runs ~2.5× output speed at 10/50 — pay for speed only where a human is waiting. **Priority Tier excludes Opus 5 and Sonnet 5** (Fable 5 and Opus 4.8 are covered) — check before routing latency-SLA pipelines to the 5-tier.
 
 ## Orchestration
 
@@ -77,7 +78,7 @@ Effort in brief: `low` subagents/simple · `medium` cost/quality balance · `hig
 
 ## Effort Parameter Caveat
 
-When routing subagents in Workflow scripts, you can pass an `effort` parameter (e.g., `agent(prompt, {model: "claude-opus-4-8", effort: "high"})`). **However, there is currently no audit trail in the response metadata.** The API does not echo back which effort level was actually used by the subagent — you cannot verify post-execution whether your `effort` assignment was honored or what impact it had relative to other factors (thinking depth, task complexity, etc.).
+When routing subagents in Workflow scripts, you can pass an `effort` parameter (e.g., `agent(prompt, {model: "claude-opus-5", effort: "high"})`). **However, there is currently no audit trail in the response metadata.** The API does not echo back which effort level was actually used by the subagent — you cannot verify post-execution whether your `effort` assignment was honored or what impact it had relative to other factors (thinking depth, task complexity, etc.).
 
 This is a known limitation. The rubric includes `effort` assignments as a desirable optimization layer, but accept that you cannot audit whether subagents actually used the effort level you specified. For now, treat effort assignments as intent — log them yourself if correctness or cost auditing is critical, and understand that verification is manual correlation of token counts against your logged requests, not a reliable inference from response data.
 
