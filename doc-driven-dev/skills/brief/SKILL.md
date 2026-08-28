@@ -28,22 +28,31 @@ Each folder has an `_index.md` TOC. Files are kebab-case, single-topic, max ~150
 
 ## Workflow
 
-### Step 1: Discover relevant docs
+### Step 1: Discover relevant docs — detector + judge
 
-First, assess what doc structure exists:
+Discovery is enumerable, so a bundled script does it; your job is judgment
+on its output, never re-deriving the enumeration by hand (and never skipping
+it because you "already know the codebase" — the scout's report is the
+required evidence that discovery ran).
 
-1. Check if `docs/_index.md` exists
-2. If it does, use it and the category `_index.md` files as your primary filter — read summaries to triage relevance without opening every file
-3. If it doesn't, fall back to exploration: `Glob` for `docs/**/*.md`, scan filenames and headings, read what looks relevant
-4. Read the specific docs that relate to the task
-5. Follow any cross-references to find related docs in other categories
-6. Also check `CLAUDE.md` for any rules that apply
+1. **Run the detector**: `bash <skill-base-dir>/scripts/doc-scout.sh <task keywords>`
+   from inside the project repo (the skill's base directory is announced when
+   this skill loads; pass the task's distinctive words as arguments). It
+   prints the full doc inventory, every `_index.md` summary, root instruction
+   files, a term-hit relevance ranking, and the headings + **Why:** lines of
+   the shortlisted files — in one call, at a cost that scales with findings
+   rather than corpus size.
+2. **Judge the shortlist**: term hits are recall, not relevance — promote or
+   demote files based on the index summaries, then `Read` every doc you keep
+   IN FULL (the scout's headings are a map, not a substitute for the text).
+3. Follow cross-references in what you read to docs the term-match missed.
+4. `CLAUDE.md`/`AGENTS.md` rules count even when no term matched them.
 
 **Do not block the task because docs are missing or poorly structured.** Work with whatever exists. If the structure doesn't match the target architecture, note the gaps but proceed — the goal is to find applicable rules, not to fix the doc structure right now.
 
 ### Step 2: Identify applicable rules and conventions
 
-List every convention, rule, pattern, or requirement from the docs that applies to this task. Group them by source file so the user can verify. Format:
+List every convention, rule, pattern, or requirement from the docs that applies to this task. Group them by source file so the user can verify, and cite `file:line` for each rule — the citation is the evidence the rule was read from disk, not recalled from memory. Format:
 
 ```
 **Applicable rules:**
@@ -96,7 +105,7 @@ Wait for user approval of the plan before writing any code.
 
 ## Important
 
-- Do NOT skip doc discovery even if you think you know the codebase
+- Do NOT skip doc discovery even if you think you know the codebase — the doc-scout report must appear in the transcript; a briefing without it is non-compliant
 - Do NOT write code during this workflow — this is planning only
 - Never block a task because docs are imperfect — adapt to what exists, note what's missing
 - Only recommend `/setup-docs` when there are truly no docs or conventions to work from
