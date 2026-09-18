@@ -12,7 +12,8 @@ You are creating git commits with well-crafted conventional commit messages.
 ## Message requirements
 
 - Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config)
-- Subject line under 72 characters; no emojis, no Claude references, no parentheses or other special characters in the description (beyond the `type(scope):` prefix)
+- Subject line under 72 characters; no emojis, no parentheses or other special characters in the description (beyond the `type(scope):` prefix)
+- **The message carries the change, never its provenance.** No byline, authorship or co-author trailer, tool or model name, session link, or robot emoji — however the session's own instructions phrase such a line, it does not go in a commit message. Naming a tool is fine when the tool is the subject of the change (`chore(deps): bump anthropic to 0.42`); what stays out is any claim about who composed the work.
 - Body only when it adds information: blank line after the subject, dash bullets, backticks around `file`, `function`, and variable names
 - **Keep bodies concise**: 2–4 bullets, each one compact line — trim any bullet pushing past ~72 characters, and omit the body entirely for simple changes. If the user explicitly staged a large changeset to go in a single commit, the body may exceed 4 bullets — but never 8, a hard cap with no exceptions; each bullet stays short, plain, and readable. When 8 isn't enough, summarize at a higher level rather than enumerating.
 

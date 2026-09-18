@@ -10,7 +10,18 @@
 # regex-checkable. No `set -e` — a zero-match grep must not abort the report.
 set -u
 
-cd "$(git rev-parse --show-toplevel)" || exit 1
+# A relative --lint path belongs to the caller's cwd; resolve it before the cd
+# below moves us to the repo root.
+if [ "${1:-}" = "--lint" ] && [ -n "${2:-}" ]; then
+  case "$2" in
+    /*) ;;
+    *) set -- "$1" "$PWD/$2" ;;
+  esac
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$ROOT" ] || { echo "ABORT: not a git repository."; exit 1; }
+cd "$ROOT" || { echo "ABORT: cannot enter repository root: $ROOT"; exit 1; }
 
 TYPES='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
 
@@ -27,15 +38,35 @@ if [ "${1:-}" = "--lint" ]; then
   DESC="$(echo "$SUBJ" | sed -E "s/^($TYPES)(\([a-z0-9-]+\))?: //")"
   echo "$DESC" | grep -q '[][(){}]' && err "description contains parentheses/brackets (allowed only in the type(scope): prefix)"
   LC_ALL=C grep -qn '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis)"
-  grep -ni 'claude' "$MSG" | grep -vi '^[0-9]*:co-authored-by:' | grep -vi 'claude\.md' | grep -q . \
-    && err "message references Claude outside a Co-Authored-By trailer (CLAUDE.md the filename is exempt)"
+  PROV_FILE="$MSG"; PROV_WHAT="commit message"
+  # --- provenance wall (identical block in git-create-pr/scripts/pr-preflight.sh)
+  # Carries the change, never who or what composed it. A bare tool name stays
+  # legal so work about an agent integration can describe itself; what fails is
+  # attribution SHAPE — a byline, an authorship trailer, a session link, the
+  # robot emoji. Regex catches the known spellings; the skill's own read-through
+  # catches the phrasings no list can enumerate.
+  AGENTS='claude|anthropic|copilot|chatgpt|openai|gpt-[0-9]|gemini|cursor|codeium|windsurf|devin|aider|cline|sourcegraph|cody|ai (assistant|agent|pair)|coding agent|language model|llm'
+  BYLINE='(generated|created|authored|written|composed|produced|made|built|drafted) (with|by|using)'
+
+  HIT="$(grep -niE "^[[:space:]]*(co-authored-by|authored-by|assisted-by|generated-by):" "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && err "authorship trailer in the $PROV_WHAT: $HIT"
+
+  HIT="$(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "($AGENTS)|https?://" | head -1)"
+  [ -n "$HIT" ] && err "attribution byline in the $PROV_WHAT: $HIT"
+
+  HIT="$(grep -niE 'claude\.ai|claude\.com/claude-code|chatgpt\.com|chat\.openai\.com|cursor\.com|copilot-workspace|githubcopilot' "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && err "link to an agent or session in the $PROV_WHAT: $HIT"
+
+  HIT="$(grep -n '🤖' "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
+  # --- end provenance wall ---
 
   if [ "$(wc -l < "$MSG")" -gt 1 ]; then
     [ -z "$(sed -n '2p' "$MSG")" ] || err "line 2 must be blank between subject and body"
     BULLETS="$(grep -c '^- ' "$MSG" || true)"
     [ "$BULLETS" -le 8 ] || err "body has $BULLETS bullets (hard cap 8 — summarize at a higher level)"
     grep -n '^- ' "$MSG" | awk -F: 'length($0)-length($1)-1 > 78 {print "LINT WARN: bullet on line " $1 " exceeds ~72 chars — trim it"}'
-    grep -vE '^(- |$)' "$MSG" | tail -n +2 | grep -v '^Co-Authored-By:' | grep -q . \
+    grep -vE '^(- |$)' "$MSG" | tail -n +2 | grep -q . \
       && echo "LINT WARN: body has non-bullet, non-trailer lines — body should be dash bullets"
   fi
 
