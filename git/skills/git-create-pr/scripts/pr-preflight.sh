@@ -1,0 +1,384 @@
+#!/usr/bin/env bash
+# pr-preflight.sh — deterministic detector for the /git-create-pr skill.
+# Two modes:
+#   pr-preflight.sh [base]                  preflight report (tooling, base,
+#                                           push state, existing PR, repo
+#                                           template, title style, diff) plus
+#                                           the action to take
+#   pr-preflight.sh --lint <body> [title]   lint a PR body written to a file,
+#                                           and the title if given;
+#                                           exit 0 = OK, 1 = violations
+#
+# The script does not touch the working tree, the index, or any local branch:
+# the model writes the body and runs the two mutating commands, so hook and API
+# output lands in its context. It DOES fetch — that writes remote-tracking refs
+# and objects, which the base comparison depends on.
+#
+# It owns everything regex-checkable; the model owns what the PR says.
+# No `set -e` — a zero-match grep must not abort the report.
+set -u
+
+# Read-only by default: no index refresh, and raw UTF-8 paths so the bucketer
+# and the deleted-file list see real filenames rather than octal escapes.
+git() { command git --no-optional-locks -c core.quotePath=false "$@"; }
+
+# A relative --lint path belongs to the caller's cwd; resolve it before the cd
+# below moves us to the repo root.
+if [ "${1:-}" = "--lint" ] && [ -n "${2:-}" ]; then
+  case "$2" in
+    /*) ;;
+    *) set -- "$1" "$PWD/$2" "${3:-}" ;;
+  esac
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+[ -n "$ROOT" ] || { echo "ABORT: not a git repository."; exit 1; }
+cd "$ROOT" || { echo "ABORT: cannot enter repository root: $ROOT"; exit 1; }
+
+TYPES='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
+
+# The repo's own PR template outranks this skill's — the environment wins.
+find_template() {
+  for p in .github/pull_request_template.md .github/PULL_REQUEST_TEMPLATE.md \
+           docs/pull_request_template.md docs/PULL_REQUEST_TEMPLATE.md \
+           pull_request_template.md PULL_REQUEST_TEMPLATE.md; do
+    [ -f "$p" ] && { echo "$p"; return; }
+  done
+}
+
+# A PULL_REQUEST_TEMPLATE directory holds several templates and GitHub applies
+# none of them without a ?template= choice, so report it instead of guessing.
+template_dir() {
+  for d in .github/PULL_REQUEST_TEMPLATE .github/pull_request_template \
+           docs/PULL_REQUEST_TEMPLATE; do
+    [ -d "$d" ] && { echo "$d"; return; }
+  done
+}
+
+# The lines a repo template makes mandatory: headings, bold labels, checklist
+# items. Printing exactly these keeps the shape shown equal to the shape
+# enforced, and keeps an essay of template prose out of the report.
+template_shape() {
+  grep -E '^(#{1,6} |\*\*.+\*\*:?[[:space:]]*$|[[:space:]]*- \[[ xX]\] )' "$1" \
+    | sed -E 's/[[:space:]]+$//; s/\r$//'
+}
+
+# Title style is read off this repo's history, never assumed. One log call.
+title_style() {
+  LOG="$(git log --format=%s -30 2>/dev/null)"
+  N="$(printf '%s\n' "$LOG" | grep -c .)"
+  C="$(printf '%s\n' "$LOG" | grep -cE "^($TYPES)(\([a-z0-9._-]+\))?: ")"
+  if [ "$N" -ge 5 ] && [ "$(( C * 2 ))" -ge "$N" ]; then
+    echo conventional
+  else
+    echo plain
+  fi
+}
+
+if [ "${1:-}" = "--lint" ]; then
+  BODY="${2:?usage: pr-preflight.sh --lint <body-file> [title]}"
+  TITLE="${3:-}"
+  [ -f "$BODY" ] || { echo "lint: no such file: $BODY"; exit 1; }
+  [ -s "$BODY" ] || { echo "LINT FAIL: body is empty"; exit 1; }
+  FAIL=0
+  err() { echo "LINT FAIL: $1"; FAIL=1; }
+
+  # Prose only — fenced blocks and inline code spans removed. Checks that look
+  # for template leftovers must not fire on the code a PR body legitimately
+  # quotes (`arr[i]`, `[ -n "$x" ]`).
+  PROSE="$(awk '/^[[:space:]]*```/ { f = !f; next } !f' "$BODY" | sed 's/`[^`]*`//g')"
+
+  TPL="$(find_template)"
+  if [ -n "$TPL" ]; then
+    REQ=0
+    while IFS= read -r H; do
+      REQ=$((REQ + 1))
+      grep -qxF -- "$H" "$BODY" || err "repo template ($TPL) section missing: $H"
+    done < <(template_shape "$TPL" | grep -E '^#{1,6} ')
+    # A bold label is filled in on its own line (`**Ticket:** ENG-1`), so it
+    # matches as a prefix where a heading matches whole.
+    while IFS= read -r L; do
+      REQ=$((REQ + 1))
+      grep -qF -- "$L" "$BODY" || err "repo template ($TPL) label missing: $L"
+    done < <(template_shape "$TPL" | grep -E '^\*\*')
+    while IFS= read -r ITEM; do
+      REQ=$((REQ + 1))
+      grep -qF -- "$ITEM" "$BODY" || err "repo template ($TPL) checklist item missing: $ITEM"
+    done < <(template_shape "$TPL" | sed -nE 's/^[[:space:]]*- \[[ xX]\] //p')
+    [ "$REQ" -gt 0 ] \
+      || echo "LINT WARN: $TPL has no headings, labels, or checklist items — match its shape by hand"
+  else
+    for H in '## Summary' '## Changes' '## Testing'; do
+      grep -qxF -- "$H" "$BODY" || err "missing required section: $H"
+    done
+    # Count inside the Testing section, and accept ticked boxes — a verified
+    # checklist is the goal, not an unticked one.
+    TESTING="$(awk '/^##[[:space:]]+Testing/ { f = 1; next } /^##[[:space:]]/ { f = 0 } f' "$BODY")"
+    BOXES="$(printf '%s\n' "$TESTING" | grep -c '^[[:space:]]*- \[[ xX]\] ')"
+    [ "$BOXES" -ge 2 ] \
+      || err "Testing needs 2+ '- [ ] ' items, each naming a real path or behavior from the diff"
+  fi
+
+  # An unfilled placeholder is bracketed text containing a space that is not a
+  # markdown link, a reference link, or a checkbox — so `[Key change 1]` fails
+  # while `[the docs](url)`, `[spec][ref]` and `[1]` pass.
+  PLACE="$(printf '%s\n' "$PROSE" | grep -nE '\[[^]]*[[:space:]][^]]*\]([^([]|$)' \
+           | grep -vE '^[0-9]+:[[:space:]]*- \[[ xX]\]' | head -1)"
+  [ -n "$PLACE" ] && err "unfilled placeholder: $PLACE"
+  printf '%s\n' "$PROSE" | grep -qiE 'key change [0-9]|verification criterion|high-level overview|brief description of|detail [0-9]' \
+    && err "template boilerplate left in the body — write the real content"
+
+  PROV_FILE="$BODY"; PROV_WHAT="PR body"
+  # --- provenance wall (identical block in git-commit/scripts/commit-preflight.sh)
+  # Carries the change, never who or what composed it. A bare tool name stays
+  # legal so work about an agent integration can describe itself; what fails is
+  # attribution SHAPE — a byline, an authorship trailer, a session link, the
+  # robot emoji. Regex catches the known spellings; the skill's own read-through
+  # catches the phrasings no list can enumerate.
+  AGENTS='claude|anthropic|copilot|chatgpt|openai|gpt-[0-9]|gemini|cursor|codeium|windsurf|devin|aider|cline|sourcegraph|cody|ai (assistant|agent|pair)|coding agent|language model|llm'
+  BYLINE='(generated|created|authored|written|composed|produced|made|built|drafted) (with|by|using)'
+
+  HIT="$(grep -niE "^[[:space:]]*(co-authored-by|authored-by|assisted-by|generated-by):" "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && err "authorship trailer in the $PROV_WHAT: $HIT"
+
+  HIT="$(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "($AGENTS)|https?://" | head -1)"
+  [ -n "$HIT" ] && err "attribution byline in the $PROV_WHAT: $HIT"
+
+  HIT="$(grep -niE 'claude\.ai|claude\.com/claude-code|chatgpt\.com|chat\.openai\.com|cursor\.com|copilot-workspace|githubcopilot' "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && err "link to an agent or session in the $PROV_WHAT: $HIT"
+
+  HIT="$(grep -n '🤖' "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
+  # --- end provenance wall ---
+
+  if [ -n "$TITLE" ]; then
+    [ "${#TITLE}" -le 70 ] || err "title is ${#TITLE} chars (max 70)"
+    case "$TITLE" in *.) err "title ends with a period";; esac
+    if [ "$(title_style)" = conventional ]; then
+      printf '%s\n' "$TITLE" | grep -qE "^($TYPES)(\([a-z0-9._-]+\))?: .+" \
+        || err "this repo titles commits conventionally — use 'type(scope): description'"
+    fi
+  fi
+
+  [ "$FAIL" = 0 ] && echo "lint: PR body OK"
+  exit "$FAIL"
+fi
+
+# ---- preflight report
+echo "== PR PREFLIGHT =="
+command -v gh >/dev/null 2>&1 \
+  || { echo "ABORT: gh is not installed — https://cli.github.com/, then 'gh auth login'."; exit 1; }
+gh auth status >/dev/null 2>&1 \
+  || { echo "ABORT: gh is not authenticated — run 'gh auth login'."; exit 1; }
+
+HEAD_BRANCH="$(git branch --show-current)"
+[ -n "$HEAD_BRANCH" ] || { echo "ABORT: detached HEAD — check out a branch first."; exit 1; }
+
+# Whatever this branch actually tracks, falling back to origin.
+REMOTE="$(git config --get "branch.$HEAD_BRANCH.remote" 2>/dev/null)"
+[ -n "$REMOTE" ] || REMOTE=origin
+
+BASE="${1:-}"; SRC="argument"
+if [ -z "$BASE" ]; then
+  SRC="repo default"
+  BASE="$(git symbolic-ref --quiet --short "refs/remotes/$REMOTE/HEAD" 2>/dev/null | sed "s#^$REMOTE/##")"
+  [ -n "$BASE" ] || BASE="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name 2>/dev/null)"
+fi
+[ -n "$BASE" ] || { echo "ABORT: no base branch given and the repo default did not resolve — pass one."; exit 1; }
+[ "$BASE" != "$HEAD_BRANCH" ] || { echo "ABORT: already on '$BASE' — check out a feature branch first."; exit 1; }
+
+DIRTY="$(git status --porcelain | grep -v '^??')"
+if [ -n "$DIRTY" ]; then
+  echo "ABORT: uncommitted changes — commit them first (untracked files are fine)."
+  echo "$DIRTY" | sed 's/^/    /'
+  exit 1
+fi
+
+git remote get-url "$REMOTE" >/dev/null 2>&1 \
+  || { echo "ABORT: remote '$REMOTE' is not configured — 'git remote -v' lists what is."; exit 1; }
+
+# Fetch the base AND this branch: the behind-check below is worthless against a
+# stale remote-tracking ref. A fetch failure is not proof the branch is missing,
+# so fall back to the cached ref and say the report may be stale.
+if ! FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE" "$HEAD_BRANCH" 2>&1)"; then
+  FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE" 2>&1)" || {
+    if git rev-parse --verify --quiet "$REMOTE/$BASE" >/dev/null 2>&1; then
+      echo "WARN: fetch failed — reading the cached $REMOTE/$BASE, which may be stale:"
+      printf '%s\n' "$FETCH_ERR" | sed 's/^/    /'
+    else
+      echo "ABORT: cannot resolve '$REMOTE/$BASE':"
+      printf '%s\n' "$FETCH_ERR" | sed 's/^/    /'
+      exit 1
+    fi
+  }
+fi
+
+MB="$(git merge-base "$REMOTE/$BASE" HEAD 2>/dev/null)"
+[ -n "$MB" ] \
+  || { echo "ABORT: no merge base with $REMOTE/$BASE — shallow clone? try 'git fetch --unshallow'."; exit 1; }
+
+COMMITS="$(git log --oneline "$MB..HEAD" 2>/dev/null)"
+[ -n "$COMMITS" ] \
+  || { echo "ABORT: no commits between $REMOTE/$BASE and HEAD — nothing to open a PR for."; exit 1; }
+
+PUSH=""
+if UP="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
+  set -- $(git rev-list --left-right --count "HEAD...$UP")
+  AHEAD="${1:-0}"; BEHIND="${2:-0}"
+  [ "$BEHIND" = 0 ] \
+    || { echo "ABORT: $UP has $BEHIND commit(s) you do not — pull or rebase first (this skill never force-pushes)."; exit 1; }
+  [ "$AHEAD" = 0 ] || PUSH="git push"
+else
+  PUSH="git push -u $REMOTE $HEAD_BRANCH"
+fi
+
+# A swallowed query failure would read as "no PR open" and make the agent open a
+# second PR on a branch that already has one.
+if ! PR="$(gh pr list --head "$HEAD_BRANCH" --state open \
+           --json number,url,baseRefName,isDraft \
+           --jq '.[] | "\(.number)\t\(.url)\t\(.baseRefName)\t\(.isDraft)"' 2>&1)"; then
+  if printf '%s\n' "$PR" | grep -qiE 'no git remotes|known github host|could not determine'; then
+    echo "ABORT: '$REMOTE' does not point at a GitHub host — gh cannot open a PR here."
+  else
+    echo "ABORT: could not query existing PRs — refusing to risk opening a duplicate:"
+  fi
+  printf '%s\n' "$PR" | sed 's/^/    /'
+  exit 1
+fi
+PR="$(printf '%s\n' "$PR" | head -1)"
+
+echo "base:  $BASE  (source: $SRC, remote: $REMOTE)"
+echo "push:  ${PUSH:-not needed — remote is up to date}"
+if [ -n "$PR" ]; then
+  IFS=$'\t' read -r PR_NUM PR_URL PR_BASE PR_DRAFT <<<"$PR"
+  echo "pr:    #$PR_NUM open  $PR_URL  base=$PR_BASE draft=$PR_DRAFT"
+  [ "$PR_BASE" = "$BASE" ] \
+    || echo "       NOTE: the open PR targets '$PR_BASE', you asked for '$BASE' — keep its base unless the user asked to retarget"
+  ACTION="UPDATE the body of #$PR_NUM (gh pr edit $PR_NUM --body-file)"
+else
+  echo "pr:    none open for this branch"
+  ACTION="CREATE a PR (gh pr create --base $BASE --title ... --body-file)"
+fi
+TPL="$(find_template)"; TPLDIR="$(template_dir)"
+if [ -n "$TPL" ]; then
+  # gh pr create --body-file never applies the repo template, so the body
+  # written here is the only one the reviewer gets. Show the shape that is
+  # enforced, not the template's prose.
+  echo "template: $TPL  (fill THIS shape — gh does not apply it for you)"
+  SHAPE="$(template_shape "$TPL" | head -25)"
+  if [ -n "$SHAPE" ]; then
+    printf '%s\n' "$SHAPE" | sed 's/^/    /'
+  else
+    echo "    (no headings, labels, or checklist items — read $TPL and match it by hand)"
+  fi
+elif [ -n "$TPLDIR" ]; then
+  echo "template: several in $TPLDIR — none applies automatically; pick the one that fits"
+  ls "$TPLDIR" | sed 's/^/    /'
+else
+  echo "template: none — use the body template in SKILL.md"
+fi
+echo "title style: $(title_style)"
+
+# One diff walk feeds the stat display, the composition, the totals and the
+# deleted-file list.
+NUMSTAT="$(git diff --numstat "$MB" HEAD)"
+DELETED="$(git diff --diff-filter=D --name-only "$MB" HEAD)"
+
+# What counts as generated is the repo's call, not this script's guess: any path
+# the repo marks linguist-generated or linguist-vendored in .gitattributes is
+# authoritative. The extension list in the bucketer is only the fallback for
+# repos that declare nothing.
+DECLARED="$(printf '%s\n' "$NUMSTAT" \
+  | awk -F'\t' 'NF >= 3 { print $3 }' \
+  | sed -E 's/\{[^}]* => //; s/\}//; s/^.* => //' \
+  | git check-attr --stdin linguist-generated linguist-vendored 2>/dev/null \
+  | sed -nE 's/: linguist-(generated|vendored): set$//p' | sort -u)"
+
+echo
+echo "-- commits ($REMOTE/$BASE..HEAD) --"; echo "$COMMITS" | sed 's/^/    /'
+echo "-- files changed --"
+printf '%s\n' "$NUMSTAT" | awk -F'\t' '{ printf "    %6s %-6s %s\n", "+"$1, "-"$2, $3 }'
+
+# Generated-or-not is the only classification here, because it is the only one
+# that can be answered without a model of what kind of project this is: the repo
+# declares it in .gitattributes, and the fallback covers only files that are
+# generated in every ecosystem. Anything that would need to know what a "test"
+# or a "migration" looks like in this language is left to the diff, which the
+# model now reads in full.
+# MODE=paths re-runs the same predicate to emit the generated paths, so the diff
+# command below excludes exactly what the report says it excludes.
+CLASSIFIER='
+BEGIN { n = split(DECLARED, d, "\n"); for (i = 1; i <= n; i++) if (d[i] != "") declared[d[i]] = 1 }
+function generated(p,   lp) {
+  if (p in declared) return 1
+  lp = tolower(p)
+  if (lp ~ /(^|\/)(node_modules|vendor|__snapshots__)\//) return 1
+  if (lp ~ /(\.lock|\.lockb|-lock\.json|\.snap|\.min\.[a-z]+)$/) return 1
+  return 0
+}
+{
+  path = $3
+  if (path ~ /\{.* => /) { sub(/\{[^}]* => /, "", path); sub(/\}/, "", path) }
+  else if (path ~ / => /) { sub(/^.* => /, "", path) }
+  g = generated(path)
+  if (MODE == "paths") { if (g) print path; next }
+  if ($1 != "-") { if (g) gen += $1 + $2; else rev += $1 + $2 }
+}
+END { if (MODE != "paths") printf "%d %d\n", rev + 0, gen + 0 }'
+
+read -r REV GEN <<<"$(printf '%s\n' "$NUMSTAT" | awk -F'\t' -v MODE=report -v DECLARED="$DECLARED" "$CLASSIFIER")"
+
+# Exclude the generated paths from the diff the model is told to read, rather
+# than printing the full diff and asking it in prose to skip them.
+EXCLUDES=""
+while IFS= read -r p; do
+  [ -n "$p" ] && EXCLUDES="$EXCLUDES ':(exclude)$p'"
+done < <(printf '%s\n' "$NUMSTAT" | awk -F'\t' -v MODE=paths -v DECLARED="$DECLARED" "$CLASSIFIER")
+[ -n "$EXCLUDES" ] && EXCLUDES=" -- .$EXCLUDES"
+
+# Merge risk: git facts only, no guessing. merge-tree does a real merge in
+# memory, so [conflict] names files that actually conflict rather than files
+# that merely changed on both sides.
+BEHIND_BASE="$(git rev-list --count "$MB..$REMOTE/$BASE" 2>/dev/null)"
+MT="$(git merge-tree --write-tree --name-only "$REMOTE/$BASE" HEAD 2>&1)"; MT_RC=$?
+CONFLICTS=""
+case "$MT_RC" in
+  0) ;;
+  1) CONFLICTS="$(printf '%s\n' "$MT" | awk 'NR == 1 { next } /^$/ { exit } { print }')" ;;
+  *) CONFLICTS="" ;;
+esac
+
+echo
+echo "-- merge risk --"
+RISK=0
+if [ -n "$CONFLICTS" ]; then
+  echo "    [conflict] real conflicts with $REMOTE/$BASE — rebase before opening:"
+  printf '%s\n' "$CONFLICTS" | head -20 | sed 's/^/        /'
+  RISK=1
+elif [ "$MT_RC" -gt 1 ]; then
+  echo "    [conflict] not checked — git merge-tree unavailable here"
+fi
+if [ "${BEHIND_BASE:-0}" -gt 0 ]; then
+  echo "    [stale]    $REMOTE/$BASE is $BEHIND_BASE commit(s) ahead of your merge base"
+  RISK=1
+fi
+if [ -n "$DELETED" ]; then
+  DEL_N="$(printf '%s\n' "$DELETED" | grep -c .)"
+  echo "    [deleted]  $DEL_N file(s) removed — callers of them break on merge:"
+  printf '%s\n' "$DELETED" | head -20 | sed 's/^/        /'
+  [ "$DEL_N" -gt 20 ] && echo "        ...and $((DEL_N - 20)) more"
+  RISK=1
+fi
+[ "$RISK" = 0 ] && echo "    none"
+
+echo
+if [ "${GEN:-0}" -gt 0 ]; then
+  echo "reading: $REV reviewable lines, $GEN generated (already excluded below)"
+else
+  echo "reading: $REV reviewable lines"
+fi
+[ "${REV:-0}" -gt 500 ] && echo "         (>500 — read path by path, not all at once)"
+echo "diff: git diff $MB HEAD$EXCLUDES"
+echo
+echo "action: ${PUSH:+$PUSH, then }$ACTION"
+echo "== END PREFLIGHT — read the diff, write the body, --lint it, then act =="

@@ -5,6 +5,7 @@
     "./doc-driven-dev/skills/debrief",
     "./doc-driven-dev/skills/setup-docs",
     "./git/skills/git-commit",
+    "./git/skills/git-create-pr",
     "./orchestration/skills/model-routing",
     "./scope-shaping/skills/sweep"
   ]
