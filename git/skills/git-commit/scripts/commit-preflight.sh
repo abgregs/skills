@@ -10,10 +10,6 @@
 # regex-checkable. No `set -e` — a zero-match grep must not abort the report.
 set -u
 
-# Bumped on any behavioral change; printed in the report header so a stale
-# installed copy is visible in the transcript next to what SKILL.md expects.
-SCRIPT_VERSION="2026-09-28"
-
 # A relative --lint path belongs to the caller's cwd; resolve it before the cd
 # below moves us to the repo root.
 if [ "${1:-}" = "--lint" ] && [ -n "${2:-}" ]; then
@@ -86,7 +82,7 @@ if [ "${1:-}" = "--lint" ]; then
 fi
 
 # ---- preflight report
-echo "== COMMIT PREFLIGHT (script $SCRIPT_VERSION) =="
+echo "== COMMIT PREFLIGHT =="
 STATUS="$(git status --porcelain)"
 if [ -z "$STATUS" ]; then
   echo "NOTHING TO COMMIT — working tree is clean. Stop."

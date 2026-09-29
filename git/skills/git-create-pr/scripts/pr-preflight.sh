@@ -18,10 +18,6 @@
 # No `set -e` — a zero-match grep must not abort the report.
 set -u
 
-# Bumped on any behavioral change; printed in the report header so a stale
-# installed copy is visible in the transcript next to what SKILL.md expects.
-SCRIPT_VERSION="2026-09-28"
-
 # Read-only by default: no index refresh, and raw UTF-8 paths so the bucketer
 # and the deleted-file list see real filenames rather than octal escapes.
 git() { command git --no-optional-locks -c core.quotePath=false "$@"; }
@@ -176,7 +172,7 @@ if [ "${1:-}" = "--lint" ]; then
 fi
 
 # ---- preflight report
-echo "== PR PREFLIGHT (script $SCRIPT_VERSION) =="
+echo "== PR PREFLIGHT =="
 command -v gh >/dev/null 2>&1 \
   || { echo "ABORT: gh is not installed — https://cli.github.com/, then 'gh auth login'."; exit 1; }
 gh auth status >/dev/null 2>&1 \
