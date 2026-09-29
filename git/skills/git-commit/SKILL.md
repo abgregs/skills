@@ -25,9 +25,10 @@ Run `bash <skill-base-dir>/scripts/commit-preflight.sh` (the skill's base
 directory is announced when this skill loads). One call replaces the manual
 status/log/conflict checks and emits: clean-tree and conflict aborts, the
 mode (single vs grouped), recent subjects (match their scope naming and
-tone), staged/unstaged/untracked stats, an oversized-diff warning, and
-suggested groupings by top-level path. Honor its aborts verbatim; treat its
-groupings as a starting point — the final grouping is your judgment.
+tone), staged/unstaged/untracked stats, an oversized-diff warning, and — when
+the change spans paths — an informational file-spread summary. Honor its
+aborts verbatim; grouping is your judgment, made from the diff, by intent
+rather than by path.
 
 Mode: `--amend` argument → **Amend workflow** below. Otherwise the preflight
 report states the mode: staged changes exist → **single mode** (one commit

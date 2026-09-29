@@ -10,6 +10,10 @@
 # regex-checkable. No `set -e` — a zero-match grep must not abort the report.
 set -u
 
+# Bumped on any behavioral change; printed in the report header so a stale
+# installed copy is visible in the transcript next to what SKILL.md expects.
+SCRIPT_VERSION="2026-09-28"
+
 # A relative --lint path belongs to the caller's cwd; resolve it before the cd
 # below moves us to the repo root.
 if [ "${1:-}" = "--lint" ] && [ -n "${2:-}" ]; then
@@ -38,7 +42,13 @@ if [ "${1:-}" = "--lint" ]; then
   DESC="$(echo "$SUBJ" | sed -E "s/^($TYPES)(\([a-z0-9-]+\))?: //")"
   echo "$DESC" | grep -q '[][(){}]' && err "description contains parentheses/brackets (allowed only in the type(scope): prefix)"
   LC_ALL=C grep -qn '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis)"
-  PROV_FILE="$MSG"; PROV_WHAT="commit message"
+  # Provenance greps run on a copy with inline code spans blanked out, so a
+  # message that legitimately QUOTES an attribution string in backticks (e.g. a
+  # commit about this very lint) does not trip the wall. sed is line-preserving,
+  # so reported line numbers still point into the real message.
+  PROV_STRIP="$(mktemp)"
+  sed 's/`[^`]*`//g' "$MSG" > "$PROV_STRIP"
+  PROV_FILE="$PROV_STRIP"; PROV_WHAT="commit message"
   # --- provenance wall (identical block in git-create-pr/scripts/pr-preflight.sh)
   # Carries the change, never who or what composed it. A bare tool name stays
   # legal so work about an agent integration can describe itself; what fails is
@@ -60,6 +70,7 @@ if [ "${1:-}" = "--lint" ]; then
   HIT="$(grep -n '🤖' "$PROV_FILE" | head -1)"
   [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
   # --- end provenance wall ---
+  rm -f "$PROV_STRIP"
 
   if [ "$(wc -l < "$MSG")" -gt 1 ]; then
     [ -z "$(sed -n '2p' "$MSG")" ] || err "line 2 must be blank between subject and body"
@@ -75,7 +86,7 @@ if [ "${1:-}" = "--lint" ]; then
 fi
 
 # ---- preflight report
-echo "== COMMIT PREFLIGHT =="
+echo "== COMMIT PREFLIGHT (script $SCRIPT_VERSION) =="
 STATUS="$(git status --porcelain)"
 if [ -z "$STATUS" ]; then
   echo "NOTHING TO COMMIT — working tree is clean. Stop."
@@ -91,8 +102,27 @@ fi
 STAGED="$(git diff --cached --name-only)"
 UNSTAGED="$(git diff --name-only)"
 UNTRACKED="$(echo "$STATUS" | grep '^??' | awk '{print $2}' || true)"
+MODE="$([ -n "$STAGED" ] && echo 'SINGLE (staged changes exist — commit exactly those)' || echo 'GROUPED (nothing staged — split unstaged into logical commits)')"
 
-echo "mode: $([ -n "$STAGED" ] && echo 'SINGLE (staged changes exist — commit exactly those)' || echo 'GROUPED (nothing staged — split unstaged into logical commits)')"
+TOTAL="$(git diff HEAD --shortstat 2>/dev/null | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | awk '{s+=$1} END {print s+0}')"
+NPATHS="$({ [ -n "$STAGED" ] && echo "$STAGED"; [ -n "$UNSTAGED" ] && echo "$UNSTAGED"; [ -n "$UNTRACKED" ] && echo "$UNTRACKED"; } | sort -u | grep -c .)"
+
+# A one-file, small change needs none of the sectioned report — the fixed cost
+# of the full layout would exceed the two git commands it replaces.
+if [ "$NPATHS" -le 1 ] && [ "$TOTAL" -le 50 ]; then
+  echo "mode: $MODE"
+  echo "-- recent subjects (match scope naming and tone) --"
+  git log --oneline -3 | sed 's/^/    /'
+  echo "-- change --"
+  if   [ -n "$STAGED" ];   then git diff --cached --stat | sed 's/^/    /'
+  elif [ -n "$UNSTAGED" ]; then git diff --stat | sed 's/^/    /'
+  else echo "$UNTRACKED" | sed 's/^/    (untracked) /'
+  fi
+  echo "== END PREFLIGHT (compact) — read the diff, lint the message with --lint, commit =="
+  exit 0
+fi
+
+echo "mode: $MODE"
 echo
 echo "-- recent subjects (match scope naming and tone) --"
 git log --oneline -5 | sed 's/^/    /'
@@ -101,13 +131,18 @@ echo "-- staged --";   [ -n "$STAGED" ]   && git diff --cached --stat | sed 's/^
 echo "-- unstaged --"; [ -n "$UNSTAGED" ] && git diff --stat | sed 's/^/    /'          || echo "    (none)"
 echo "-- untracked --"; [ -n "$UNTRACKED" ] && echo "$UNTRACKED" | sed 's/^/    /'      || echo "    (none)"
 
-TOTAL="$(git diff HEAD --shortstat 2>/dev/null | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | awk '{s+=$1} END {print s+0}')"
 echo
 echo "total changed lines vs HEAD: $TOTAL$([ "$TOTAL" -gt 500 ] && echo '  (>500 — read the diff in batches by path, not all at once)')"
 
-echo
-echo "-- suggested groupings (by top-level path — a starting point, the model judges the final grouping) --"
-{ [ -n "$UNSTAGED" ] && echo "$UNSTAGED"; [ -n "$UNTRACKED" ] && echo "$UNTRACKED"; } \
-  | awk -F/ 'NF>1 {print $1"/"$2} NF<=1 {print $1}' | sort | uniq -c | sort -rn | sed 's/^/    /'
+# Informational only, and only when the change spans paths — a printed
+# suggestion anchors, and a feature spanning dirs is still one commit.
+# (Not named GROUPS: that is a readonly bash builtin that swallows assignment.)
+SPREAD="$({ [ -n "$UNSTAGED" ] && echo "$UNSTAGED"; [ -n "$UNTRACKED" ] && echo "$UNTRACKED"; } \
+  | awk -F/ 'NF>1 {print $1"/"$2} NF<=1 {print $1}' | sort | uniq -c | sort -rn)"
+if [ "$(printf '%s\n' "$SPREAD" | grep -c .)" -gt 1 ]; then
+  echo
+  echo "-- file spread (by top-level path; informational — group by intent, not path) --"
+  printf '%s\n' "$SPREAD" | sed 's/^/    /'
+fi
 echo
 echo "== END PREFLIGHT — analyze diffs, group, then lint each message with --lint before committing =="
