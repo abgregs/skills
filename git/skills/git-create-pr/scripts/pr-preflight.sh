@@ -18,6 +18,10 @@
 # No `set -e` — a zero-match grep must not abort the report.
 set -u
 
+# Bumped on any behavioral change; printed in the report header so a stale
+# installed copy is visible in the transcript next to what SKILL.md expects.
+SCRIPT_VERSION="2026-09-28"
+
 # Read-only by default: no index refresh, and raw UTF-8 paths so the bucketer
 # and the deleted-file list see real filenames rather than octal escapes.
 git() { command git --no-optional-locks -c core.quotePath=false "$@"; }
@@ -83,10 +87,11 @@ if [ "${1:-}" = "--lint" ]; then
   FAIL=0
   err() { echo "LINT FAIL: $1"; FAIL=1; }
 
-  # Prose only — fenced blocks and inline code spans removed. Checks that look
-  # for template leftovers must not fire on the code a PR body legitimately
-  # quotes (`arr[i]`, `[ -n "$x" ]`).
-  PROSE="$(awk '/^[[:space:]]*```/ { f = !f; next } !f' "$BODY" | sed 's/`[^`]*`//g')"
+  # Prose only — fenced blocks and inline code spans blanked out. Checks that
+  # look for template leftovers must not fire on the code a PR body
+  # legitimately quotes (`arr[i]`, `[ -n "$x" ]`). Blanked, not deleted, so
+  # line numbers in findings still point into the real body.
+  PROSE="$(awk '/^[[:space:]]*```/ { f = !f; print ""; next } f { print ""; next } { print }' "$BODY" | sed 's/`[^`]*`//g')"
 
   TPL="$(find_template)"
   if [ -n "$TPL" ]; then
@@ -128,7 +133,12 @@ if [ "${1:-}" = "--lint" ]; then
   printf '%s\n' "$PROSE" | grep -qiE 'key change [0-9]|verification criterion|high-level overview|brief description of|detail [0-9]' \
     && err "template boilerplate left in the body — write the real content"
 
-  PROV_FILE="$BODY"; PROV_WHAT="PR body"
+  # Provenance greps run on the code-stripped prose, so a body that
+  # legitimately QUOTES an attribution string in backticks (e.g. a PR about
+  # this very lint) does not trip the wall.
+  PROV_STRIP="$(mktemp)"
+  printf '%s\n' "$PROSE" > "$PROV_STRIP"
+  PROV_FILE="$PROV_STRIP"; PROV_WHAT="PR body"
   # --- provenance wall (identical block in git-commit/scripts/commit-preflight.sh)
   # Carries the change, never who or what composed it. A bare tool name stays
   # legal so work about an agent integration can describe itself; what fails is
@@ -150,6 +160,7 @@ if [ "${1:-}" = "--lint" ]; then
   HIT="$(grep -n '🤖' "$PROV_FILE" | head -1)"
   [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
   # --- end provenance wall ---
+  rm -f "$PROV_STRIP"
 
   if [ -n "$TITLE" ]; then
     [ "${#TITLE}" -le 70 ] || err "title is ${#TITLE} chars (max 70)"
@@ -165,7 +176,7 @@ if [ "${1:-}" = "--lint" ]; then
 fi
 
 # ---- preflight report
-echo "== PR PREFLIGHT =="
+echo "== PR PREFLIGHT (script $SCRIPT_VERSION) =="
 command -v gh >/dev/null 2>&1 \
   || { echo "ABORT: gh is not installed — https://cli.github.com/, then 'gh auth login'."; exit 1; }
 gh auth status >/dev/null 2>&1 \
@@ -187,12 +198,11 @@ fi
 [ -n "$BASE" ] || { echo "ABORT: no base branch given and the repo default did not resolve — pass one."; exit 1; }
 [ "$BASE" != "$HEAD_BRANCH" ] || { echo "ABORT: already on '$BASE' — check out a feature branch first."; exit 1; }
 
+# Captured here, judged after the merge base is known: push ships commits, not
+# the working tree, so dirty files are a problem only when they intersect this
+# PR's own diff — the one case where the tree and what the reviewer sees could
+# genuinely diverge.
 DIRTY="$(git status --porcelain | grep -v '^??')"
-if [ -n "$DIRTY" ]; then
-  echo "ABORT: uncommitted changes — commit them first (untracked files are fine)."
-  echo "$DIRTY" | sed 's/^/    /'
-  exit 1
-fi
 
 git remote get-url "$REMOTE" >/dev/null 2>&1 \
   || { echo "ABORT: remote '$REMOTE' is not configured — 'git remote -v' lists what is."; exit 1; }
@@ -203,7 +213,11 @@ git remote get-url "$REMOTE" >/dev/null 2>&1 \
 if ! FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE" "$HEAD_BRANCH" 2>&1)"; then
   FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE" 2>&1)" || {
     if git rev-parse --verify --quiet "$REMOTE/$BASE" >/dev/null 2>&1; then
-      echo "WARN: fetch failed — reading the cached $REMOTE/$BASE, which may be stale:"
+      # A decision point, not a silent fallback: the model reads the raw error
+      # and judges the cause before trusting anything derived from the ref.
+      echo "WARN: fetch failed — push, behind, and merge-risk results below read the"
+      echo "      cached $REMOTE/$BASE and may be stale. Diagnose the error before"
+      echo "      trusting them (expired auth? network? remote moved?):"
       printf '%s\n' "$FETCH_ERR" | sed 's/^/    /'
     else
       echo "ABORT: cannot resolve '$REMOTE/$BASE':"
@@ -220,6 +234,20 @@ MB="$(git merge-base "$REMOTE/$BASE" HEAD 2>/dev/null)"
 COMMITS="$(git log --oneline "$MB..HEAD" 2>/dev/null)"
 [ -n "$COMMITS" ] \
   || { echo "ABORT: no commits between $REMOTE/$BASE and HEAD — nothing to open a PR for."; exit 1; }
+
+if [ -n "$DIRTY" ]; then
+  DIRTY_PATHS="$(printf '%s\n' "$DIRTY" | sed -E 's/^.{3}//; s/^.* -> //')"
+  OVERLAP="$(comm -12 <(printf '%s\n' "$DIRTY_PATHS" | sort -u) \
+                      <(git diff --name-only "$MB" HEAD | sort -u))"
+  if [ -n "$OVERLAP" ]; then
+    echo "ABORT: uncommitted changes touch files in this PR's diff — commit or stash them first:"
+    printf '%s\n' "$OVERLAP" | sed 's/^/    /'
+    exit 1
+  fi
+  echo "WARN: uncommitted local changes, none in this PR's diff — push ships commits"
+  echo "      only, so proceeding; the PR will not include:"
+  printf '%s\n' "$DIRTY" | sed 's/^/    /'
+fi
 
 PUSH=""
 if UP="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
