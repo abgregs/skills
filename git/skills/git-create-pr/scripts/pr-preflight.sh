@@ -55,19 +55,66 @@ template_dir() {
   done
 }
 
+# What a reader of the rendered markdown sees: HTML comments and fenced blocks
+# blanked (line count kept), trailing whitespace and CRs stripped. Templates
+# and bodies both pass through it, so a heading inside `<!-- -->` or a fence is
+# never demanded, and a CRLF body still matches line for line.
+md_visible() {
+  awk '
+    /^[[:space:]]*(```|~~~)/ && !inc {
+      t = $0; sub(/^[[:space:]]*/, "", t); t = substr(t, 1, 3)
+      if (fence == "") fence = t; else if (t == fence) fence = ""
+      print ""; next
+    }
+    fence != "" { print ""; next }
+    {
+      line = $0; out = ""
+      while (line != "") {
+        if (inc) {
+          i = index(line, "-->")
+          if (i) { line = substr(line, i + 3); inc = 0 } else line = ""
+        } else {
+          i = index(line, "<!--")
+          if (i) { out = out substr(line, 1, i - 1); line = substr(line, i + 4); inc = 1 }
+          else { out = out line; line = "" }
+        }
+      }
+      print out
+    }' "$1" | sed -E 's/[[:space:]]+$//'
+}
+
 # The lines a repo template makes mandatory: headings, bold labels, checklist
 # items. Printing exactly these keeps the shape shown equal to the shape
 # enforced, and keeps an essay of template prose out of the report.
 template_shape() {
-  grep -E '^(#{1,6} |\*\*.+\*\*:?[[:space:]]*$|[[:space:]]*- \[[ xX]\] )' "$1" \
-    | sed -E 's/[[:space:]]+$//; s/\r$//'
+  md_visible "$1" | grep -E '^(#{1,6} |\*\*.+\*\*:?$|[[:space:]]*- \[[ xX]\] )'
+}
+
+# One line per piece of template shape missing from $BODY_VIS; NOREQ when the
+# template has no shape to enforce. Headings match a whole line; a bold label is
+# filled in on its own line (`**Ticket:** ENG-1`), so it matches as a prefix.
+template_misses() {
+  SHAPE="$(template_shape "$1")"
+  [ -n "$SHAPE" ] || { echo NOREQ; return; }
+  printf '%s\n' "$SHAPE" | while IFS= read -r S; do
+    case "$S" in
+      '#'*)  printf '%s\n' "$BODY_VIS" | grep -qxF -- "$S" || echo "section missing: $S" ;;
+      '**'*) printf '%s\n' "$BODY_VIS" | grep -qF -- "$S" || echo "label missing: $S" ;;
+      *)
+        ITEM="$(printf '%s\n' "$S" | sed -nE 's/^[[:space:]]*- \[[ xX]\] //p')"
+        [ -z "$ITEM" ] || printf '%s\n' "$BODY_VIS" | grep -qF -- "$ITEM" \
+          || echo "checklist item missing: $ITEM" ;;
+    esac
+  done
 }
 
 # Title style is read off this repo's history, never assumed. One log call.
+# Merge commits are skipped: their subjects are written by the forge, not the
+# repo's convention.
 title_style() {
-  LOG="$(git log --format=%s -30 2>/dev/null)"
+  LOG="$(git log --no-merges --format=%s -30 2>/dev/null)"
   N="$(printf '%s\n' "$LOG" | grep -c .)"
-  C="$(printf '%s\n' "$LOG" | grep -cE "^($TYPES)(\([a-z0-9._-]+\))?: ")"
+  C="$(printf '%s\n' "$LOG" | grep -cE "^($TYPES)(\([a-z0-9._-]+\))?!?: ")"
   if [ "$N" -ge 5 ] && [ "$(( C * 2 ))" -ge "$N" ]; then
     echo conventional
   else
@@ -87,27 +134,55 @@ if [ "${1:-}" = "--lint" ]; then
   # look for template leftovers must not fire on the code a PR body
   # legitimately quotes (`arr[i]`, `[ -n "$x" ]`). Blanked, not deleted, so
   # line numbers in findings still point into the real body.
-  PROSE="$(awk '/^[[:space:]]*```/ { f = !f; print ""; next } f { print ""; next } { print }' "$BODY" | sed 's/`[^`]*`//g')"
+  # Fences close only on their own marker (``` or ~~~); an indented code block
+  # is a 4-space/tab line after a blank or code line that is not a list item.
+  PROSE="$(awk '
+    BEGIN { prev = "blank" }
+    /^[[:space:]]*(```|~~~)/ {
+      t = $0; sub(/^[[:space:]]*/, "", t); t = substr(t, 1, 3)
+      if (f == "") f = t; else if (t == f) f = ""
+      print ""; prev = "text"; next
+    }
+    f != "" { print ""; next }
+    /^(    |\t)/ && $0 !~ /^[[:space:]]*([-*+]|[0-9]+[.)])[[:space:]]/ && (prev == "blank" || prev == "code") {
+      print ""; prev = "code"; next
+    }
+    { print; prev = ($0 ~ /^[[:space:]]*$/) ? "blank" : "text" }' "$BODY" | sed 's/`[^`]*`//g')"
 
-  TPL="$(find_template)"
+  BODY_VIS="$(md_visible "$BODY")"
+  TPL="$(find_template)"; TPLDIR="$(template_dir)"
   if [ -n "$TPL" ]; then
-    REQ=0
-    while IFS= read -r H; do
-      REQ=$((REQ + 1))
-      grep -qxF -- "$H" "$BODY" || err "repo template ($TPL) section missing: $H"
-    done < <(template_shape "$TPL" | grep -E '^#{1,6} ')
-    # A bold label is filled in on its own line (`**Ticket:** ENG-1`), so it
-    # matches as a prefix where a heading matches whole.
-    while IFS= read -r L; do
-      REQ=$((REQ + 1))
-      grep -qF -- "$L" "$BODY" || err "repo template ($TPL) label missing: $L"
-    done < <(template_shape "$TPL" | grep -E '^\*\*')
-    while IFS= read -r ITEM; do
-      REQ=$((REQ + 1))
-      grep -qF -- "$ITEM" "$BODY" || err "repo template ($TPL) checklist item missing: $ITEM"
-    done < <(template_shape "$TPL" | sed -nE 's/^[[:space:]]*- \[[ xX]\] //p')
-    [ "$REQ" -gt 0 ] \
-      || echo "LINT WARN: $TPL has no headings, labels, or checklist items — match its shape by hand"
+    MISS="$(template_misses "$TPL")"
+    if [ "$MISS" = NOREQ ]; then
+      echo "LINT WARN: $TPL has no headings, labels, or checklist items — match its shape by hand"
+    else
+      while IFS= read -r M; do
+        [ -z "$M" ] || err "repo template ($TPL) $M"
+      done <<<"$MISS"
+    fi
+  elif [ -n "$TPLDIR" ]; then
+    # Preflight told the model to pick one; judge the body against whichever
+    # template it matches best (most shape lines present, then fewest missing),
+    # and name that one in any failure.
+    BEST=""; BEST_N=-1; BEST_HIT=-1; BEST_MISS=""
+    for T in "$TPLDIR"/*; do
+      [ -f "$T" ] || continue
+      MISS="$(template_misses "$T")"
+      [ "$MISS" = NOREQ ] && continue
+      N="$(printf '%s' "$MISS" | grep -c .)"
+      HIT=$(( $(template_shape "$T" | grep -c .) - N ))
+      if [ "$BEST_N" -lt 0 ] || [ "$HIT" -gt "$BEST_HIT" ] \
+         || { [ "$HIT" = "$BEST_HIT" ] && [ "$N" -lt "$BEST_N" ]; }; then
+        BEST="$T"; BEST_N="$N"; BEST_HIT="$HIT"; BEST_MISS="$MISS"
+      fi
+    done
+    if [ "$BEST_N" -lt 0 ]; then
+      echo "LINT WARN: no template in $TPLDIR has headings, labels, or checklist items — match the chosen one by hand"
+    else
+      while IFS= read -r M; do
+        [ -z "$M" ] || err "closest repo template ($BEST) $M"
+      done <<<"$BEST_MISS"
+    fi
   else
     for H in '## Summary' '## Changes' '## Testing'; do
       grep -qxF -- "$H" "$BODY" || err "missing required section: $H"
@@ -121,10 +196,14 @@ if [ "${1:-}" = "--lint" ]; then
   fi
 
   # An unfilled placeholder is bracketed text containing a space that is not a
-  # markdown link, a reference link, or a checkbox — so `[Key change 1]` fails
-  # while `[the docs](url)`, `[spec][ref]` and `[1]` pass.
-  PLACE="$(printf '%s\n' "$PROSE" | grep -nE '\[[^]]*[[:space:]][^]]*\]([^([]|$)' \
-           | grep -vE '^[0-9]+:[[:space:]]*- \[[ xX]\]' | head -1)"
+  # markdown link, a reference link or definition, or a checkbox — so
+  # `[Key change 1]` fails while `[the docs](url)`, `[spec][ref]`,
+  # `[my ref]: url` and `[1]` pass. Only the checkbox marker is stripped (in any
+  # list style), so a placeholder written after one is still caught.
+  PLACE="$(printf '%s\n' "$PROSE" \
+           | sed -E 's/^([[:space:]]*([-*+]|[0-9]+[.)])[[:space:]]+)\[[ xX]\]/\1/' \
+           | grep -nE '\[[^]]*[[:space:]][^]]*\]([^([]|$)' \
+           | grep -vE '^[0-9]+:[[:space:]]{0,3}\[[^]]+\]:' | head -1)"
   [ -n "$PLACE" ] && err "unfilled placeholder: $PLACE"
   printf '%s\n' "$PROSE" | grep -qiE 'key change [0-9]|verification criterion|high-level overview|brief description of|detail [0-9]' \
     && err "template boilerplate left in the body — write the real content"
@@ -166,7 +245,7 @@ if [ "${1:-}" = "--lint" ]; then
     [ "${#TITLE}" -le 70 ] || err "title is ${#TITLE} chars (max 70)"
     case "$TITLE" in *.) err "title ends with a period";; esac
     if [ "$(title_style)" = conventional ]; then
-      printf '%s\n' "$TITLE" | grep -qE "^($TYPES)(\([a-z0-9._-]+\))?: .+" \
+      printf '%s\n' "$TITLE" | grep -qE "^($TYPES)(\([a-z0-9._-]+\))?!?: .+" \
         || err "this repo titles commits conventionally — use 'type(scope): description'"
     fi
   fi
@@ -301,6 +380,7 @@ if [ -n "$TPL" ]; then
   fi
 elif [ -n "$TPLDIR" ]; then
   echo "template: several in $TPLDIR — none applies automatically; pick the one that fits"
+  echo "          (--lint checks the body against whichever it matches best)"
   ls "$TPLDIR" | sed 's/^/    /'
 else
   echo "template: none — use the body template in SKILL.md"
