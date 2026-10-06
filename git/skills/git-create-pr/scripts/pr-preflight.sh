@@ -287,10 +287,18 @@ git remote get-url "$REMOTE" >/dev/null 2>&1 \
   || { echo "ABORT: remote '$REMOTE' is not configured — 'git remote -v' lists what is."; exit 1; }
 
 # Fetch the base AND this branch: the behind-check below is worthless against a
-# stale remote-tracking ref. A fetch failure is not proof the branch is missing,
-# so fall back to the cached ref and say the report may be stale.
-if ! FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE" "$HEAD_BRANCH" 2>&1)"; then
-  FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE" 2>&1)" || {
+# stale remote-tracking ref. Explicit refspecs, because a bare branch name only
+# updates a tracking ref the remote's configured refspec covers — never true in
+# a single-branch or shallow clone. If only the base fetch succeeds, the branch
+# is not on the remote; if both fail, nothing is proven, so fall back to the
+# cached refs and say the report may be stale.
+BASE_SPEC="+refs/heads/$BASE:refs/remotes/$REMOTE/$BASE"
+HEAD_SPEC="+refs/heads/$HEAD_BRANCH:refs/remotes/$REMOTE/$HEAD_BRANCH"
+HEAD_REMOTE=yes
+if ! FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE_SPEC" "$HEAD_SPEC" 2>&1)"; then
+  HEAD_REMOTE=no
+  FETCH_ERR="$(git fetch --quiet "$REMOTE" "$BASE_SPEC" 2>&1)" || {
+    HEAD_REMOTE=cached
     if git rev-parse --verify --quiet "$REMOTE/$BASE" >/dev/null 2>&1; then
       # A decision point, not a silent fallback: the model reads the raw error
       # and judges the cause before trusting anything derived from the ref.
@@ -315,9 +323,11 @@ COMMITS="$(git log --oneline "$MB..HEAD" 2>/dev/null)"
   || { echo "ABORT: no commits between $REMOTE/$BASE and HEAD — nothing to open a PR for."; exit 1; }
 
 if [ -n "$DIRTY" ]; then
-  DIRTY_PATHS="$(printf '%s\n' "$DIRTY" | sed -E 's/^.{3}//; s/^.* -> //')"
-  OVERLAP="$(comm -12 <(printf '%s\n' "$DIRTY_PATHS" | sort -u) \
-                      <(git diff --name-only "$MB" HEAD | sort -u))"
+  # Both sides from `git diff --name-only`, so paths are spelled and quoted the
+  # same way (status quotes paths with spaces; diff does not). --no-renames
+  # lists both names of a rename, so neither side can hide the other.
+  OVERLAP="$(comm -12 <(git diff --name-only --no-renames HEAD | sort -u) \
+                      <(git diff --name-only --no-renames "$MB" HEAD | sort -u))"
   if [ -n "$OVERLAP" ]; then
     echo "ABORT: uncommitted changes touch files in this PR's diff — commit or stash them first:"
     printf '%s\n' "$OVERLAP" | sed 's/^/    /'
@@ -328,22 +338,44 @@ if [ -n "$DIRTY" ]; then
   printf '%s\n' "$DIRTY" | sed 's/^/    /'
 fi
 
-PUSH=""
-if UP="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"; then
-  set -- $(git rev-list --left-right --count "HEAD...$UP")
+# Compare against this branch on the remote, not whatever @{u} names: a branch
+# made with `checkout -b feat origin/main` tracks the base, and a bare `git push`
+# would then be refused (push.default=simple) or land on the base (=upstream).
+# push -u is the default because it also repoints a wrong upstream.
+RB="$REMOTE/$HEAD_BRANCH"
+UP="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+PUSH="git push -u $REMOTE $HEAD_BRANCH"; UP_NOTE=""
+if [ "$HEAD_REMOTE" != no ] && git rev-parse --verify --quiet "refs/remotes/$RB" >/dev/null; then
+  set -- $(git rev-list --left-right --count "HEAD...refs/remotes/$RB")
   AHEAD="${1:-0}"; BEHIND="${2:-0}"
+  if [ "$BEHIND" != 0 ] && [ "$AHEAD" != 0 ]; then
+    echo "ABORT: $HEAD_BRANCH and $RB have diverged ($AHEAD ahead, $BEHIND behind) — local history was"
+    echo "       rewritten or someone else pushed; reconcile by hand (this skill never force-pushes)."
+    exit 1
+  fi
   [ "$BEHIND" = 0 ] \
-    || { echo "ABORT: $UP has $BEHIND commit(s) you do not — pull or rebase first (this skill never force-pushes)."; exit 1; }
-  [ "$AHEAD" = 0 ] || PUSH="git push"
-else
-  PUSH="git push -u $REMOTE $HEAD_BRANCH"
+    || { echo "ABORT: $RB has $BEHIND commit(s) you do not — 'git pull --ff-only' first."; exit 1; }
+  if [ "$UP" = "$RB" ]; then
+    if [ "$AHEAD" = 0 ]; then PUSH=""; else PUSH="git push"; fi
+  fi
 fi
+[ -n "$UP" ] && [ "$UP" != "$RB" ] \
+  && UP_NOTE="upstream is $UP, not $RB — the push -u above repoints it"
 
 # A swallowed query failure would read as "no PR open" and make the agent open a
 # second PR on a branch that already has one.
+# --head matches the branch name alone, so a fork's PR from a same-named branch
+# (patch-1) would match too; keep only PRs whose head lives in $REMOTE's owner.
+OWNER="$(git remote get-url "$REMOTE" | sed -E 's#/+$##; s#\.git$##; s#^.*[:/]([^/:]+)/[^/:]+$#\1#' \
+         | tr '[:upper:]' '[:lower:]')"
+if printf '%s' "$OWNER" | grep -qE '^[a-z0-9][a-z0-9-]*$'; then
+  OWNER_SEL="select((.headRepositoryOwner.login | ascii_downcase) == \"$OWNER\") | "
+else
+  OWNER_SEL=""
+fi
 if ! PR="$(gh pr list --head "$HEAD_BRANCH" --state open \
-           --json number,url,baseRefName,isDraft \
-           --jq '.[] | "\(.number)\t\(.url)\t\(.baseRefName)\t\(.isDraft)"' 2>&1)"; then
+           --json number,url,baseRefName,isDraft,headRepositoryOwner \
+           --jq ".[] | $OWNER_SEL\"\\(.number)\\t\\(.url)\\t\\(.baseRefName)\\t\\(.isDraft)\"" 2>&1)"; then
   if printf '%s\n' "$PR" | grep -qiE 'no git remotes|known github host|could not determine'; then
     echo "ABORT: '$REMOTE' does not point at a GitHub host — gh cannot open a PR here."
   else
@@ -356,6 +388,7 @@ PR="$(printf '%s\n' "$PR" | head -1)"
 
 echo "base:  $BASE  (source: $SRC, remote: $REMOTE)"
 echo "push:  ${PUSH:-not needed — remote is up to date}"
+[ -z "$UP_NOTE" ] || echo "       NOTE: $UP_NOTE"
 if [ -n "$PR" ]; then
   IFS=$'\t' read -r PR_NUM PR_URL PR_BASE PR_DRAFT <<<"$PR"
   echo "pr:    #$PR_NUM open  $PR_URL  base=$PR_BASE draft=$PR_DRAFT"
@@ -392,56 +425,77 @@ echo "title style: $(title_style)"
 NUMSTAT="$(git diff --numstat "$MB" HEAD)"
 DELETED="$(git diff --diff-filter=D --name-only "$MB" HEAD)"
 
-# What counts as generated is the repo's call, not this script's guess: any path
-# the repo marks linguist-generated or linguist-vendored in .gitattributes is
-# authoritative. The extension list in the bucketer is only the fallback for
-# repos that declare nothing.
-DECLARED="$(printf '%s\n' "$NUMSTAT" \
-  | awk -F'\t' 'NF >= 3 { print $3 }' \
-  | sed -E 's/\{[^}]* => //; s/\}//; s/^.* => //' \
-  | git check-attr --stdin linguist-generated linguist-vendored 2>/dev/null \
-  | sed -nE 's/: linguist-(generated|vendored): set$//p' | sort -u)"
-
-echo
-echo "-- commits ($REMOTE/$BASE..HEAD) --"; echo "$COMMITS" | sed 's/^/    /'
-echo "-- files changed --"
-printf '%s\n' "$NUMSTAT" | awk -F'\t' '{ printf "    %6s %-6s %s\n", "+"$1, "-"$2, $3 }'
-
 # Generated-or-not is the only classification here, because it is the only one
 # that can be answered without a model of what kind of project this is: the repo
 # declares it in .gitattributes, and the fallback covers only files that are
 # generated in every ecosystem. Anything that would need to know what a "test"
 # or a "migration" looks like in this language is left to the diff, which the
 # model now reads in full.
-# MODE=paths re-runs the same predicate to emit the generated paths, so the diff
-# command below excludes exactly what the report says it excludes.
+# One predicate, three modes: names (each file's post-rename path, for
+# check-attr), report (line totals), paths (generated paths plus the old side
+# of a rename, so the diff command below excludes exactly what the report says
+# it excludes). Declared sets arrive via ENVIRON — macOS awk rejects a newline
+# inside a -v value.
 CLASSIFIER='
-BEGIN { n = split(DECLARED, d, "\n"); for (i = 1; i <= n; i++) if (d[i] != "") declared[d[i]] = 1 }
+BEGIN {
+  n = split(ENVIRON["DECLARED"], d, "\n"); for (i = 1; i <= n; i++) if (d[i] != "") declared[d[i]] = 1
+  n = split(ENVIRON["UNDECLARED"], d, "\n"); for (i = 1; i <= n; i++) if (d[i] != "") undeclared[d[i]] = 1
+}
+function clean(p) { gsub(/\/\/+/, "/", p); sub(/^\//, "", p); return p }
 function generated(p,   lp) {
   if (p in declared) return 1
+  if (p in undeclared) return 0
   lp = tolower(p)
   if (lp ~ /(^|\/)(node_modules|vendor|__snapshots__)\//) return 1
   if (lp ~ /(\.lock|\.lockb|-lock\.json|\.snap|\.min\.[a-z]+)$/) return 1
   return 0
 }
-{
-  path = $3
-  if (path ~ /\{.* => /) { sub(/\{[^}]* => /, "", path); sub(/\}/, "", path) }
-  else if (path ~ / => /) { sub(/^.* => /, "", path) }
+NF >= 3 {
+  path = $3; old = ""
+  if (match(path, /\{[^}]* => [^}]*\}/)) {
+    pre = substr(path, 1, RSTART - 1); post = substr(path, RSTART + RLENGTH)
+    mid = substr(path, RSTART + 1, RLENGTH - 2); k = index(mid, " => ")
+    old = clean(pre substr(mid, 1, k - 1) post); path = clean(pre substr(mid, k + 4) post)
+  } else if ((k = index(path, " => ")) > 0) {
+    old = substr(path, 1, k - 1); path = substr(path, k + 4)
+  }
+  if (MODE == "names") { print path; next }
   g = generated(path)
-  if (MODE == "paths") { if (g) print path; next }
+  if (MODE == "paths") { if (g) { print path; if (old != "") print old }; next }
   if ($1 != "-") { if (g) gen += $1 + $2; else rev += $1 + $2 }
 }
-END { if (MODE != "paths") printf "%d %d\n", rev + 0, gen + 0 }'
+END { if (MODE == "report") printf "%d %d\n", rev + 0, gen + 0 }'
 
-read -r REV GEN <<<"$(printf '%s\n' "$NUMSTAT" | awk -F'\t' -v MODE=report -v DECLARED="$DECLARED" "$CLASSIFIER")"
+# What counts as generated is the repo's call, not this script's guess: any path
+# the repo marks linguist-generated or linguist-vendored in .gitattributes is
+# authoritative, either way — `=true`/set adds it, `=false`/unset (`-attr`)
+# overrides the fallback extension list, which covers only repos that declare
+# nothing.
+ATTRS="$(printf '%s\n' "$NUMSTAT" | awk -F'\t' -v MODE=names "$CLASSIFIER" \
+  | git check-attr --stdin linguist-generated linguist-vendored 2>/dev/null)"
+DECLARED="$(printf '%s\n' "$ATTRS" \
+  | sed -nE 's/: linguist-(generated|vendored): (set|true)$//p' | sort -u)"
+UNDECLARED="$(printf '%s\n' "$ATTRS" \
+  | sed -nE 's/: linguist-(generated|vendored): (unset|false)$//p' | sort -u)"
+
+echo
+echo "-- commits ($REMOTE/$BASE..HEAD) --"; echo "$COMMITS" | sed 's/^/    /'
+echo "-- files changed --"
+printf '%s\n' "$NUMSTAT" | awk -F'\t' '{ printf "    %6s %-6s %s\n", "+"$1, "-"$2, $3 }'
+
+read -r REV GEN <<<"$(printf '%s\n' "$NUMSTAT" \
+  | DECLARED="$DECLARED" UNDECLARED="$UNDECLARED" awk -F'\t' -v MODE=report "$CLASSIFIER")"
 
 # Exclude the generated paths from the diff the model is told to read, rather
-# than printing the full diff and asking it in prose to skip them.
+# than printing the full diff and asking it in prose to skip them. `literal`
+# keeps a path like `[id].lock` from being read as a glob; shq keeps a quote in
+# a path from breaking the printed command.
+shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 EXCLUDES=""
 while IFS= read -r p; do
-  [ -n "$p" ] && EXCLUDES="$EXCLUDES ':(exclude)$p'"
-done < <(printf '%s\n' "$NUMSTAT" | awk -F'\t' -v MODE=paths -v DECLARED="$DECLARED" "$CLASSIFIER")
+  [ -n "$p" ] && EXCLUDES="$EXCLUDES $(shq ":(exclude,literal)$p")"
+done < <(printf '%s\n' "$NUMSTAT" \
+  | DECLARED="$DECLARED" UNDECLARED="$UNDECLARED" awk -F'\t' -v MODE=paths "$CLASSIFIER")
 [ -n "$EXCLUDES" ] && EXCLUDES=" -- .$EXCLUDES"
 
 # Merge risk: git facts only, no guessing. merge-tree does a real merge in
