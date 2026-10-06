@@ -141,13 +141,17 @@ if [ "${1:-}" = "--lint" ]; then
   # attribution SHAPE — a byline, an authorship trailer, a session link, the
   # robot emoji. Regex catches the known spellings; the skill's own read-through
   # catches the phrasings no list can enumerate.
-  AGENTS='claude|anthropic|copilot|chatgpt|openai|gpt-[0-9]|gemini|cursor|codeium|windsurf|devin|aider|cline|sourcegraph|cody|ai (assistant|agent|pair)|coding agent|language model|llm'
+  # A byline names its tool within a few words of the verb, as a whole word —
+  # so "built using cursor-based paging" and "produced by declined requests"
+  # are prose, while "written with the help of Claude" is attribution.
+  AGENTS='claude|anthropic|copilot|chatgpt|openai|gpt-[0-9][[:alnum:].]*|gemini|cursor|codeium|windsurf|devin|aider|cline|sourcegraph|cody|ai (assistant|agent|pair)s?|coding agents?|language models?|llms?'
   BYLINE='(generated|created|authored|written|composed|produced|made|built|drafted) (with|by|using)'
+  NAMED="$BYLINE[[:space:]]+([^[:space:]]+[[:space:]]+){0,3}[^[:alnum:][:space:]]*($AGENTS)([^[:alnum:]_-]|\$)"
 
   HIT="$(grep -niE "^[[:space:]]*(co-authored-by|authored-by|assisted-by|generated-by):" "$PROV_FILE" | head -1)"
   [ -n "$HIT" ] && err "authorship trailer in the $PROV_WHAT: $HIT"
 
-  HIT="$(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "($AGENTS)|https?://" | head -1)"
+  HIT="$(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "$NAMED|https?://" | head -1)"
   [ -n "$HIT" ] && err "attribution byline in the $PROV_WHAT: $HIT"
 
   HIT="$(grep -niE 'claude\.ai|claude\.com/claude-code|chatgpt\.com|chat\.openai\.com|cursor\.com|copilot-workspace|githubcopilot' "$PROV_FILE" | head -1)"
