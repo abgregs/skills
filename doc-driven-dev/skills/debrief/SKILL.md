@@ -50,16 +50,18 @@ The classification drives the **Why:** requirement on the new or revised rule:
 
 Then present the proposed changes, grouped by type:
 
+```
 **Updates needed:**
-```
-Update `docs/conventions/dates-and-times.md`:
-- Replace "store and pass timestamps in the user's local time" with "store and pass timestamps in UTC; convert to local time only at the display boundary"
-  **Why:** removes timezone math from every internal layer and stops DST-driven off-by-one bugs at integration points
-- Remove the example showing a Date object passed straight from the form into storage
 
-Update `docs/conventions/_index.md`:
-- Update the dates-and-times summary to reflect the UTC boundary rule
+Update `docs/<category>/<file>.md`:
+- <Replace | Add | Clarify | Remove> "<old wording>" with "<new wording>"
+  **Why:** <one line — required for replacements>
+
+Update `docs/<category>/_index.md`:
+- <summary line to change>
 ```
+
+A filled-in proposal for a convention replacement, with its **Why:** line, is in `<skill-base-dir>/examples/doc-update-proposal.md`.
 
 If no updates are needed, say so explicitly and explain why the existing docs already cover the changes.
 
