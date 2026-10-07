@@ -3,7 +3,14 @@
 ## Structure
 
 - Each skill group is a top-level directory with a `README.md` and `skills/` subdirectory
-- Each skill is a directory under `skills/` containing a `SKILL.md`
+- Each skill is a directory under `skills/` containing a `SKILL.md`, a
+  `README.md` (for people, not the agent), and `LICENSE.md` (MIT, Austin
+  Gregersen). Optional, encouraged: `examples/` and `references/` at the skill
+  root for material the agent reaches only sometimes; `NOTICE.md` when the
+  skill carries third-party IP or trademarks. Full layout: root `README.md`
+  › Skill layout.
+  **Why:** `SKILL.md` stays short enough to read on every run when worked
+  examples, research, and data live beside it instead of inside it.
 - All skills must be registered in `.claude-plugin/plugin.json` with repo-root-relative paths (starting with `./`)
 
 ## Skill conventions
@@ -40,7 +47,9 @@
 
 ## Adding a skill
 
-1. Create `<group>/skills/<skill-name>/SKILL.md`
+1. Create `<group>/skills/<skill-name>/` with `SKILL.md`, `README.md`, and
+   `LICENSE.md` (copy the root `LICENSE.md`); add `examples/`, `references/`,
+   or `NOTICE.md` as the skill's material warrants
 2. Add the path to `.claude-plugin/plugin.json`
 3. Update the group's README skill table
 4. Update the root README skill group table if it's a new group
