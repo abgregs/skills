@@ -26,6 +26,7 @@ One stance to know before the first run: the body carries the change, never its 
 - `SKILL.md` — the workflow the agent follows
 - `scripts/pr-preflight.sh` — the detector; `--lint <body-file> "<title>"` checks sections, placeholders, provenance, and title style
 - `examples/pr-body.md` — a filled body that lints clean, with notes on why
+- `evidence/` — recorded runs against a bare agent on the same branch, one case per file, with the method to rerun them
 
 ## Requirements
 
