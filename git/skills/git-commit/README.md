@@ -37,6 +37,7 @@ Installing the skill opts into two opinions. Both are enforced by the lint, so t
 - `SKILL.md` — the workflow the agent follows
 - `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--lint <file>` gates every message before `git commit -F`
 - `examples/commit-messages.md` — messages in each shape, plus ones the lint rejects
+- `evidence/` — recorded runs against a bare agent on the same input, one case per file, with the method to rerun them
 
 ## Requirements
 
