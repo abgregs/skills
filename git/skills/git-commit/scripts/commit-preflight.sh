@@ -25,6 +25,33 @@ cd "$ROOT" || { echo "ABORT: cannot enter repository root: $ROOT"; exit 1; }
 
 TYPES='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
 
+# Repo-owned commit-message enforcers. The type(scope) format is this skill's
+# stance, a default for repos that have none; when the repo enforces its own
+# format, that format wins and the lint skips the stance checks. The other
+# checks (length, blank line, provenance, body shape) are walls that no
+# format conflicts with, so they always run.
+find_enforcers() {
+  local hooks f t
+  hooks="$(git rev-parse --git-path hooks 2>/dev/null)"
+  [ -n "$hooks" ] && [ -x "$hooks/commit-msg" ] && echo "$hooks/commit-msg"
+  [ -f .husky/commit-msg ] && echo ".husky/commit-msg"
+  for f in commitlint.config.js commitlint.config.cjs commitlint.config.mjs commitlint.config.ts \
+           .commitlintrc .commitlintrc.json .commitlintrc.yml .commitlintrc.yaml \
+           .commitlintrc.js .commitlintrc.cjs .commitlintrc.ts .gitlint; do
+    [ -f "$f" ] && echo "$f"
+  done
+  [ -f package.json ] && grep -q '"commitlint"' package.json && echo "package.json (commitlint)"
+  for f in lefthook.yml lefthook.yaml .lefthook.yml .lefthook.yaml; do
+    [ -f "$f" ] && grep -q 'commit-msg' "$f" && echo "$f (commit-msg)"
+  done
+  for f in .pre-commit-config.yaml .pre-commit-config.yml; do
+    [ -f "$f" ] && grep -qE 'commit-msg|conventional-pre-commit|commitizen|commitlint|gitlint' "$f" && echo "$f (commit-msg)"
+  done
+  t="$(git config --get commit.template 2>/dev/null)"
+  [ -n "$t" ] && echo "commit.template=$t"
+  return 0
+}
+
 if [ "${1:-}" = "--lint" ]; then
   MSG="${2:?usage: commit-preflight.sh --lint <message-file>}"
   [ -f "$MSG" ] || { echo "lint: no such file: $MSG"; exit 1; }
@@ -32,12 +59,17 @@ if [ "${1:-}" = "--lint" ]; then
   err() { echo "LINT FAIL: $1"; FAIL=1; }
   SUBJ="$(head -1 "$MSG")"
 
-  echo "$SUBJ" | grep -qE "^($TYPES)(\([a-z0-9-]+\))?: .+" \
-    || err "subject must match 'type(scope): description' with type in: $TYPES"
+  ENFORCER="$(find_enforcers | head -1)"
+  if [ -n "$ENFORCER" ]; then
+    echo "lint: repo enforces its own subject format ($ENFORCER) — type(scope) checks skipped; match the repo's recent subjects"
+  else
+    echo "$SUBJ" | grep -qE "^($TYPES)(\([a-z0-9-]+\))?: .+" \
+      || err "subject must match 'type(scope): description' with type in: $TYPES"
+    DESC="$(echo "$SUBJ" | sed -E "s/^($TYPES)(\([a-z0-9-]+\))?: //")"
+    echo "$DESC" | grep -q '[][(){}]' && err "description contains parentheses/brackets (allowed only in the type(scope): prefix)"
+    LC_ALL=C grep -qn '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis)"
+  fi
   [ "${#SUBJ}" -le 72 ] || err "subject is ${#SUBJ} chars (max 72)"
-  DESC="$(echo "$SUBJ" | sed -E "s/^($TYPES)(\([a-z0-9-]+\))?: //")"
-  echo "$DESC" | grep -q '[][(){}]' && err "description contains parentheses/brackets (allowed only in the type(scope): prefix)"
-  LC_ALL=C grep -qn '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis)"
   # Provenance greps run on a copy with inline code spans blanked out, so a
   # message that legitimately QUOTES an attribution string in backticks (e.g. a
   # commit about this very lint) does not trip the wall. sed is line-preserving,
@@ -103,6 +135,14 @@ STAGED="$(git diff --cached --name-only)"
 UNSTAGED="$(git diff --name-only)"
 UNTRACKED="$(echo "$STATUS" | grep '^??' | awk '{print $2}' || true)"
 MODE="$([ -n "$STAGED" ] && echo 'SINGLE (staged changes exist — commit exactly those)' || echo 'GROUPED (nothing staged — split unstaged into logical commits)')"
+ENFORCERS="$(find_enforcers)"
+enforcer_line() {
+  if [ -n "$ENFORCERS" ]; then
+    echo "subject format: REPO-ENFORCED ($(printf '%s' "$ENFORCERS" | tr '\n' ',' | sed 's/,$//; s/,/, /g')) — write subjects in the repo's shape; the lint skips its type(scope) checks"
+  else
+    echo "subject format: type(scope): description (skill default — no repo enforcer found)"
+  fi
+}
 
 TOTAL="$(git diff HEAD --shortstat 2>/dev/null | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | awk '{s+=$1} END {print s+0}')"
 NPATHS="$({ [ -n "$STAGED" ] && echo "$STAGED"; [ -n "$UNSTAGED" ] && echo "$UNSTAGED"; [ -n "$UNTRACKED" ] && echo "$UNTRACKED"; } | sort -u | grep -c .)"
@@ -111,6 +151,7 @@ NPATHS="$({ [ -n "$STAGED" ] && echo "$STAGED"; [ -n "$UNSTAGED" ] && echo "$UNS
 # of the full layout would exceed the two git commands it replaces.
 if [ "$NPATHS" -le 1 ] && [ "$TOTAL" -le 50 ]; then
   echo "mode: $MODE"
+  enforcer_line
   echo "-- recent subjects (match scope naming and tone) --"
   git log --oneline -3 | sed 's/^/    /'
   echo "-- change --"
@@ -123,6 +164,7 @@ if [ "$NPATHS" -le 1 ] && [ "$TOTAL" -le 50 ]; then
 fi
 
 echo "mode: $MODE"
+enforcer_line
 echo
 echo "-- recent subjects (match scope naming and tone) --"
 git log --oneline -5 | sed 's/^/    /'

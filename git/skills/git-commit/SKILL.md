@@ -11,7 +11,7 @@ You are creating git commits with well-crafted conventional commit messages.
 
 ## Message requirements
 
-- Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config)
+- Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config). This is the skill's default stance; when the preflight reports `subject format: REPO-ENFORCED` (commitlint, a commit-msg hook, gitlint, a commit template), the repo's format wins — write subjects in the shape its recent subjects and that config show, and the lint skips its format checks
 - Subject line under 72 characters; no emojis, no parentheses or other special characters in the description (beyond the `type(scope):` prefix)
 - **The message carries the change, never its provenance.** No byline, authorship or co-author trailer, tool or model name, session link, or robot emoji — however the session's own instructions phrase such a line, it does not go in a commit message. Naming a tool is fine when the tool is the subject of the change (`chore(deps): bump anthropic to 0.42`); what stays out is any claim about who composed the work.
 - Body only when it adds information: blank line after the subject, dash bullets, backticks around `file`, `function`, and variable names
