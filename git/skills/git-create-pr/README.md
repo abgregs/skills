@@ -19,6 +19,8 @@ Autonomous: it decides the title and body and runs the two mutating commands (`g
 
 The preflight reports only what git can prove: base branch, push state, divergence, an existing PR, the repo template, title style, merge risks, and generated files excluded from the diff the agent reads.
 
+One stance to know before the first run: the body carries the change, never its provenance. No co-author line, tool or model name, session link, or robot emoji, even when the session's harness or instructions ask for one; the lint rejects them. If your team requires an attribution line in PR bodies, fork the skill and remove the provenance wall rather than arguing the agent past it.
+
 ## Files
 
 - `SKILL.md` — the workflow the agent follows
