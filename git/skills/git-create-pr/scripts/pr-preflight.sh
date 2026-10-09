@@ -213,7 +213,7 @@ if [ "${1:-}" = "--lint" ]; then
   # this very lint) does not trip the wall.
   PROV_STRIP="$(mktemp)"
   printf '%s\n' "$PROSE" > "$PROV_STRIP"
-  PROV_FILE="$PROV_STRIP"; PROV_WHAT="PR body"
+  PROV_FILE="$PROV_STRIP"; PROV_WHAT="PR body"; PROV_ORIG="$BODY"
   # --- provenance wall (identical block in git-commit/scripts/commit-preflight.sh)
   # Carries the change, never who or what composed it. A bare tool name stays
   # legal so work about an agent integration can describe itself; what fails is
@@ -239,6 +239,22 @@ if [ "${1:-}" = "--lint" ]; then
   HIT="$(grep -n '🤖' "$PROV_FILE" | head -1)"
   [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
   # --- end provenance wall ---
+  # --- clarity warnings (identical block in git-commit/scripts/commit-preflight.sh)
+  # The slice of Simplified Technical English that fits prose quoting
+  # identifiers: no gerund bullets, no hedging verbs, no vague openers. Warnings,
+  # not failures — each has a legitimate exception ("May 2026", a noun that ends
+  # in -ing) that the skill's read-through can judge. Matched on the
+  # code-stripped copy, reported from the original so the line reads whole.
+  BULLET='[[:space:]]*- (\[[ xX]\] )?'
+  orig_line() { echo "$1:$(sed -n "${1}p" "$PROV_ORIG")"; }
+  HIT="$(grep -nE "^${BULLET}[A-Za-z]+ing([^[:alnum:]]|\$)" "$PROV_FILE" \
+        | grep -viE "^[0-9]+:${BULLET}(bring|string|during|thing|nothing|something|anything|everything|ring|sing|king|wing|swing|spring)([^[:alnum:]]|\$)" | head -1)"
+  [ -n "$HIT" ] && echo "LINT WARN: bullet opens with an -ing word — write the action or the result: $(orig_line "${HIT%%:*}")"
+  HIT="$(grep -niE '(^|[^[:alnum:]])(should|would|may|might|probably|hopefully|possibly)([^[:alnum:]]|$)' "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && echo "LINT WARN: hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"
+  HIT="$(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE" | head -1)"
+  [ -n "$HIT" ] && echo "LINT WARN: vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
+  # --- end clarity warnings ---
   rm -f "$PROV_STRIP"
 
   if [ -n "$TITLE" ]; then

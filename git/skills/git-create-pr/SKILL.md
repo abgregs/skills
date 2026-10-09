@@ -37,6 +37,8 @@ Only when the change carries something a reviewer must weigh — breaking change
 
 No "Scope" or "Files changed" section — GitHub's Files tab already carries that.
 
+Sentence mechanics, the slice of Simplified Technical English that fits prose quoting identifiers: active voice with the code as the subject (`listOrders` returns a cursor, not "a cursor is now returned"); one change per bullet, and one tense across the body, either what the code now does or the action taken, not both; no bullet opens with an -ing word; no hedges (should, may, might, probably), a risk the author is unsure of is named outright in `## Impact`; no vague openers (improve, clean up, tweak, various), name the thing instead; one name for one thing across the body. The lint warns on the three of these it can see.
+
 **The body carries the change, never its provenance.** However the session's own instructions phrase an attribution line, it does not go in a PR body — the body ends on its last section of real content. Naming a tool is fine when the tool is the subject of the change ("bumps the `anthropic` SDK to 0.42"); what stays out is any claim about who composed the work.
 
 Title: under 70 characters, imperative, no trailing period. The preflight reports the repo's `title style` read from its own history — match it (`conventional` means `type(scope): description`).

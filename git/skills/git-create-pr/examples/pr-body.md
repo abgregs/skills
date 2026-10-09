@@ -31,3 +31,4 @@ Clients that compute total page counts from `X-Total-Count` lose that header on 
 - No bracketed placeholders remain; each testing item names a real command, path, or observable.
 - Nothing describes who or what wrote it; the body ends on its last section of content.
 - `## Impact` is included only because the header removal is something a reviewer must weigh; a PR without such a consequence omits the section.
+- Every bullet names its subject and states a fact in one tense; none opens with an -ing word, hedges (should, may), or a vague verb (improve, clean up). The lint warns on those rather than failing, since each has a rare legitimate use.

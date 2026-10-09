@@ -48,3 +48,11 @@ docs(readme): fix the local setup command
 - `feat: Add pagination (closes #12)` — parentheses in the description, capitalised verb
 - `fix(auth): expire tokens. Generated with help from an AI assistant` — provenance in the message
 - A body of eight bullets for a two-file change — the body is for what the diff cannot say, not a file list
+
+## What the lint warns about
+
+Warnings do not block the commit; they mark a line for a second look.
+
+- `- Adding a null guard to parse` — a bullet opening with an -ing word; write `Add` or say what `parse` now does
+- `- This should fix the flaky retry` — a hedge; a commit records what changed
+- `- Clean up the settings view` — a vague opener; name what changed in the view
