@@ -1,6 +1,6 @@
 # Evidence
 
-Recorded runs that back the claims in the skill's README. Each case is one dirty working tree committed two ways, by a bare agent and by the same agent running this skill, with the commits quoted as `git log` prints them, newest first. Cases are numbered and stand on their own; nothing in them depends on where the input came from. These are comparisons to read and judge, not tests with a pass or fail; the method below is enough to rerun any of them.
+Recorded runs that back the claims in the skill's README. Each case is one dirty working tree committed by the agent running this skill, and usually by a bare agent too, with the commits quoted as `git log` prints them, newest first. A case that tests only whether the skill defers (0003) runs the skill arm alone and says so. Cases are numbered and stand on their own; nothing in them depends on where the input came from. These are comparisons to read and judge, not tests with a pass or fail; the method below is enough to rerun any of them.
 
 | Case | Claim | Result |
 |---|---|---|
