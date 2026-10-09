@@ -12,7 +12,7 @@ You are creating git commits with well-crafted conventional commit messages.
 ## Message requirements
 
 - Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config). This is the skill's default stance; when the preflight reports `subject format: REPO-ENFORCED` (commitlint, a commit-msg hook, gitlint, a commit template), the repo's format wins — write subjects in the shape its recent subjects and that config show, and the lint skips its format checks
-- Subject line under 72 characters; no emojis, no parentheses or other special characters in the description (beyond the `type(scope):` prefix)
+- Subject line under 72 characters, ASCII only (so no emojis); no brackets or parentheses in the description, the `type(scope):` prefix being the only pair. Ordinary punctuation such as `/`, `:` or `-` is fine, and this is exactly what the lint checks
 - **The message carries the change, never its provenance.** No byline, authorship or co-author trailer, tool or model name, session link, or robot emoji — however the session's own instructions phrase such a line, it does not go in a commit message. Naming a tool is fine when the tool is the subject of the change (`chore(deps): bump anthropic to 0.42`); what stays out is any claim about who composed the work.
 - Body only when it adds information: blank line after the subject, dash bullets, backticks around `file`, `function`, and variable names
 - **Keep bodies concise**: 2–4 bullets, each one compact line — trim any bullet pushing past ~72 characters, and omit the body entirely for simple changes. If the user explicitly staged a large changeset to go in a single commit, the body may exceed 4 bullets — but never 8, a hard cap with no exceptions; each bullet stays short, plain, and readable. When 8 isn't enough, summarize at a higher level rather than enumerating.
@@ -43,7 +43,7 @@ for the staged changes only); only unstaged changes → **grouped mode**
 
 ### 3. Commit — no approval prompts
 
-Grouped mode first prints a one-line overview per planned group, then processes groups in order, staging each with `git add <files>` (use `git restore --staged .` beforehand only if the run began with nothing staged).
+Grouped mode first prints a one-line overview per planned group, then processes groups in order, staging each by naming its paths: `git add <file> <file>`, never `git add -A`, `-u`, or `.`. A path list is what keeps untracked files and the other groups' files out of the commit; a sweep only looks equivalent on the day nothing else is in the tree. Use `git restore --staged .` beforehand only if the run began with nothing staged.
 
 For each commit:
 
@@ -86,6 +86,8 @@ Show `git log --oneline -n <commits made>` and confirm state with `git status`.
 
 - Never force push or use destructive git commands; never bypass hooks with `--no-verify` unless explicitly requested
 - Pre-commit hook failure: show the full hook output, keep files staged, fix auto-fixable issues (lint/format) with Edit, re-stage, retry the same message once; if it fails again the same way, stop and report
+- Commit-msg hook rejection: the same message cannot pass twice, so read the hook's output (and its source, if the rule is not stated), rewrite the subject to the rule it enforces, re-lint, and retry once; if it rejects again, stop and show both messages with the hook output
+- Stage by path in every mode; `git add -A`, `-u`, and `.` are never used, even when the tree holds nothing else
 - Respect the user's staging selection — if they staged specific files, commit exactly those
 - Grouping is your judgment; ask only when a split is genuinely ambiguous in a way that affects correctness (e.g. unrelated features tangled in one file)
 
