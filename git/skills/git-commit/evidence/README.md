@@ -8,6 +8,8 @@ Recorded runs that back the claims in the skill's README. Each case is one dirty
 | [0002](0002.md) | A multi-intent tree is split by intent | bare makes one commit of nine files; skill makes two, code-and-user-facing vs internal docs |
 | [0003](0003.md) | A repo's own subject format outranks the skill's `type(scope)` stance | skill writes `WID-5: …`, its lint skips the format check, the repo's hook passes first try |
 
+Case 0001 also recorded the skill staging with `git add -A .`, a sweep that would have picked up untracked files had any existed. The skill has since required staging by path in every mode (`f1691ca`), so the case file no longer lists it.
+
 ## Method
 
 | Item | Value |
