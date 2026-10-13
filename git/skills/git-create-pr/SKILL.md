@@ -31,11 +31,17 @@ Only when the change carries something a reviewer must weigh — breaking change
 
 ## Testing
 
+Verified:
+- What ran, where, and its result, with a link when one exists
+
+For the reviewer:
 - [ ] Each item names a real path, command, or behavior from this diff
 - [ ] Checkable by someone who did not write the code
 ```
 
 No "Scope" or "Files changed" section — GitHub's Files tab already carries that.
+
+Testing separates evidence from work. `Verified:` holds plain bullets for checks that actually ran — in this session, or reported by the user, such as a CI link or their screenshots — each naming the command or flow, where it ran, and the result. Name what ran, not who ran it: "Playwright `checkout.spec.ts` against staging: passed", never "the agent ran checkout". When nothing ran, leave out the `Verified:` label. `For the reviewer:` holds unticked boxes only, so GitHub's task counter counts reviewer work alone; list what the author could not check, and with nothing verified it carries the whole list. A ticked box claims a check without its evidence — write it as a `Verified:` bullet instead.
 
 Sentence mechanics, the slice of Simplified Technical English that fits prose quoting identifiers: active voice with the code as the subject (`listOrders` returns a cursor, not "a cursor is now returned"); one change per bullet, and one tense across the body, either what the code now does or the action taken, not both; no bullet opens with an -ing word; no hedges (should, may, might, probably), a risk the author is unsure of is named outright in `## Impact`; no vague openers (improve, clean up, tweak, various), name the thing instead; one name for one thing across the body. The lint warns on the three of these it can see.
 
@@ -80,6 +86,7 @@ Before that lint, read the body back once for provenance and delete anything ans
    gh pr edit <number> --body-file /tmp/pr-body.md
    ```
 3. Report the PR URL.
+4. When the diff changes something a person sees — UI, rendered pages, emails, CLI output — name each spot where a screenshot would help the reviewer, then stop. Screenshots are the user's choice, never a gate on opening the PR: they can attach images in GitHub themselves, or send hosted URLs for you to add under `Verified:` — edit the linted body, re-lint, and `gh pr edit` it as in step 2.
 
 ## Guardrails
 

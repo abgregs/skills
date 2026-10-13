@@ -187,12 +187,17 @@ if [ "${1:-}" = "--lint" ]; then
     for H in '## Summary' '## Changes' '## Testing'; do
       grep -qxF -- "$H" "$BODY" || err "missing required section: $H"
     done
-    # Count inside the Testing section, and accept ticked boxes — a verified
-    # checklist is the goal, not an unticked one.
+    # Count inside the Testing section: plain bullets under Verified: are
+    # evidence, unticked boxes under For the reviewer: are work. A ticked box
+    # claims a check without showing it, so it fails here; repo templates keep
+    # their own checkbox rules above.
     TESTING="$(awk '/^##[[:space:]]+Testing/ { f = 1; next } /^##[[:space:]]/ { f = 0 } f' "$BODY")"
-    BOXES="$(printf '%s\n' "$TESTING" | grep -c '^[[:space:]]*- \[[ xX]\] ')"
-    [ "$BOXES" -ge 2 ] \
-      || err "Testing needs 2+ '- [ ] ' items, each naming a real path or behavior from the diff"
+    ITEMS="$(printf '%s\n' "$TESTING" | grep -c '^[[:space:]]*- ')"
+    [ "$ITEMS" -ge 2 ] \
+      || err "Testing needs 2+ items, each naming a real path or behavior from the diff"
+    HIT="$(printf '%s\n' "$TESTING" | grep -m1 '^[[:space:]]*- \[[xX]\] ')"
+    [ -n "$HIT" ] \
+      && err "ticked box in Testing — write it under 'Verified:' as a plain bullet with its result: $HIT"
   fi
 
   # An unfilled placeholder is bracketed text containing a space that is not a

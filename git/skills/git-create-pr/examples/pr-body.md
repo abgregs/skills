@@ -20,7 +20,10 @@ Clients that compute total page counts from `X-Total-Count` lose that header on 
 
 ## Testing
 
-- [ ] `pnpm test apps/api/orders` — covers cursor round-trips and the partition boundary
+Verified:
+- `pnpm test apps/api/orders`: 48 passed, including cursor round-trips and the partition boundary ([CI run](https://github.com/acme/api/actions/runs/9182734))
+
+For the reviewer:
 - [ ] Load `/orders?after=<cursor>` on the staging account with 400k orders and confirm p95 under 300 ms in Grafana
 - [ ] Request `/orders?page=3` and confirm the `Deprecation` header and unchanged payload
 ```
@@ -29,6 +32,7 @@ Clients that compute total page counts from `X-Total-Count` lose that header on 
 
 - Every required section is present and spelled as a whole line: `## Summary`, `## Changes`, `## Testing`.
 - No bracketed placeholders remain; each testing item names a real command, path, or observable.
+- The test suite ran before the PR opened, so it sits under `Verified:` as a plain bullet with its result and run link; the staging checks need access the author did not use, so they stay unticked boxes for the reviewer.
 - Nothing describes who or what wrote it; the body ends on its last section of content.
 - `## Impact` is included only because the header removal is something a reviewer must weigh; a PR without such a consequence omits the section.
 - Every bullet names its subject and states a fact in one tense; none opens with an -ing word, hedges (should, may), or a vague verb (improve, clean up). The lint warns on those rather than failing, since each has a rare legitimate use.

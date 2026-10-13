@@ -15,7 +15,8 @@ Autonomous: it decides the title and body and runs the two mutating commands (`g
 
 - A body with `## Summary`, `## Changes`, `## Testing`, and `## Impact` only when there is a consequence to weigh; when the repo has a PR template, the body fills that template's shape instead
 - A title under 70 characters that matches the repo's own style, read from its history
-- The PR URL
+- A `## Testing` section that separates checks already run, cited with their results under `Verified:`, from unticked boxes left for the reviewer
+- The PR URL, plus, when the diff changes something a person sees, the spots where a screenshot would help; adding them is optional, and hosted URLs sent back are written into the body with `gh pr edit`
 
 The preflight reports only what git can prove: base branch, push state, divergence, an existing PR, the repo template, title style, merge risks, and generated files excluded from the diff the agent reads.
 
