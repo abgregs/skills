@@ -6,18 +6,24 @@
 #                                       groupings by top-level dir)
 #   commit-preflight.sh --lint <file>   lint a commit message written to a
 #                                       file; exit 0 = OK, 1 = violations
+#   commit-preflight.sh --commit <file> [--accept-warnings]
+#                                       lint, then `git commit -F <file>` only
+#                                       on a clean result; exit 1 = failed,
+#                                       2 = warned, not committed
 # The model judges grouping and message content; this script owns everything
 # regex-checkable. No `set -e` — a zero-match grep must not abort the report.
 set -u
 
-# A relative --lint path belongs to the caller's cwd; resolve it before the cd
-# below moves us to the repo root.
-if [ "${1:-}" = "--lint" ] && [ -n "${2:-}" ]; then
-  case "$2" in
-    /*) ;;
-    *) set -- "$1" "$PWD/$2" ;;
-  esac
-fi
+# A relative message path belongs to the caller's cwd; resolve it, and this
+# script's own path, before the cd below moves us to the repo root.
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+case "${1:-}" in
+  --lint|--commit)
+    case "${2:-}" in
+      ""|/*) ;;
+      *) MODE="$1"; M="$PWD/$2"; shift 2; set -- "$MODE" "$M" "$@" ;;
+    esac ;;
+esac
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 [ -n "$ROOT" ] || { echo "ABORT: not a git repository."; exit 1; }
@@ -68,7 +74,16 @@ if [ "${1:-}" = "--lint" ]; then
     DESC="$(echo "$SUBJ" | sed -E "s/^($TYPES)(\([a-z0-9-]+\))?: //")"
     echo "$DESC" | grep -q '[][(){}]' && err "description contains parentheses/brackets (allowed only in the type(scope): prefix)"
     LC_ALL=C grep -qn '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis)"
+    # These types state their own reason; a Why: bullet on one is padding.
+    TYPE="$(echo "$SUBJ" | sed -nE "s/^($TYPES)(\([a-z0-9-]+\))?: .*/\1/p")"
+    case "$TYPE" in
+      docs|chore|test) grep -qE '^- Why:' "$MSG" && err "a $TYPE commit takes no Why: bullet — remove it" ;;
+    esac
   fi
+  # Why:, when present, is the single first bullet.
+  WHYS="$(grep -c '^- Why:' "$MSG" || true)"
+  [ "$WHYS" -le 1 ] || err "message has $WHYS Why: bullets (at most one)"
+  [ "$WHYS" = 0 ] || [ "$(grep -m1 '^- ' "$MSG" | cut -c1-6)" = "- Why:" ] || err "the Why: bullet must be the first bullet"
   [ "${#SUBJ}" -le 72 ] || err "subject is ${#SUBJ} chars (max 72)"
   # Provenance greps run on a copy with inline code spans blanked out, so a
   # message that legitimately QUOTES an attribution string in backticks (e.g. a
@@ -124,13 +139,32 @@ if [ "${1:-}" = "--lint" ]; then
     [ -z "$(sed -n '2p' "$MSG")" ] || err "line 2 must be blank between subject and body"
     BULLETS="$(grep -c '^- ' "$MSG" || true)"
     [ "$BULLETS" -le 8 ] || err "body has $BULLETS bullets (hard cap 8 — summarize at a higher level)"
-    grep -n '^- ' "$MSG" | awk -F: 'length($0)-length($1)-1 > 78 {print "LINT WARN: bullet on line " $1 " exceeds ~72 chars — trim it"}'
-    grep -vE '^(- |$)' "$MSG" | tail -n +2 | grep -q . \
-      && echo "LINT WARN: body has non-bullet, non-trailer lines — body should be dash bullets"
+    # A bullet too long for one line wraps onto lines indented two spaces.
+    grep -nE '^(- |  [^ ])' "$MSG" | awk -F: 'length($0)-length($1)-1 > 100 {print "LINT WARN: line " $1 " exceeds ~100 chars — trim it, or wrap it onto a line indented two spaces"}'
+    grep -vE '^(- |  [^ ]|$)' "$MSG" | tail -n +2 | grep -q . \
+      && echo "LINT WARN: body has non-bullet lines — body should be dash bullets, wrapped lines indented two spaces"
   fi
 
   [ "$FAIL" = 0 ] && echo "lint: message OK"
   exit "$FAIL"
+fi
+
+# The only path to a commit: the lint result, not the model, decides whether
+# git runs. A warning blocks until the line is fixed or explicitly accepted.
+if [ "${1:-}" = "--commit" ]; then
+  MSG="${2:?usage: commit-preflight.sh --commit <message-file> [--accept-warnings]}"
+  OUT="$(bash "$SELF" --lint "$MSG")"; RC=$?
+  echo "$OUT"
+  if [ "$RC" != 0 ]; then
+    echo "NOT COMMITTED: lint failed — fix the message in $MSG and run --commit again"
+    exit 1
+  fi
+  if echo "$OUT" | grep -q '^LINT WARN' && [ "${3:-}" != "--accept-warnings" ]; then
+    echo "NOT COMMITTED: lint warned — fix each warned line in $MSG and run --commit again; add --accept-warnings only when every warning misreads its line"
+    exit 2
+  fi
+  git commit -F "$MSG"
+  exit $?
 fi
 
 # ---- preflight report

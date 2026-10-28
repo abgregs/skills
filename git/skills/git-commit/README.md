@@ -14,15 +14,16 @@ The mode follows the state of the tree:
 | Tree state | Mode | Result |
 |---|---|---|
 | Staged changes exist | single | One commit of exactly the staged files |
-| Only unstaged changes | grouped | Several commits, split by intent, foundational work first |
+| Only unstaged changes | grouped | Several commits, split by conventional type and then by distinct fix or feature, each after the changes it needs |
 | `--amend` | amend | Interactive: message only, or fold in staged changes |
 
-Untracked files are never touched. Stage specific files first to control exactly what one commit contains.
+Untracked files are never touched; mark a new file with `git add -N` to include it. Stage specific files first to control exactly what one commit contains. The one question grouped mode asks is when a single code file holds pieces of two commits, since committing it whole would leave the earlier commit incomplete.
 
 ## What it produces
 
 - Subjects in `type(scope): description` form, under 72 characters
 - A body only when bullets add information the diff does not state; 2–4 bullets, 8 at most
+- A first `- Why:` bullet when the change has a cause from outside the code (a trigger, an environment, an outside requirement, a measured figure); most commits skip it, and `docs`, `chore`, and `test` commits never carry one
 - Each commit printed with its file list before it runs, and `git log -1` after
 
 ## Stances
@@ -35,9 +36,9 @@ Installing the skill opts into two opinions. Both are enforced by the lint, so t
 ## Files
 
 - `SKILL.md` — the workflow the agent follows
-- `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--lint <file>` gates every message before `git commit -F`
+- `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--commit <file>` lints each message and runs `git commit -F` only on a clean result, so a failed or warned message is never committed
 - `examples/commit-messages.md` — messages in each shape, plus ones the lint rejects
-- `evidence/` — recorded runs against a bare agent on the same input, one case per file, with the method to rerun them
+- `evidence/` — recorded runs, most against a bare agent on the same input, one case per file, with the method to rerun them
 
 ## Requirements
 
