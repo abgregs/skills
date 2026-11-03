@@ -14,15 +14,15 @@ The mode follows the state of the tree:
 | Tree state | Mode | Result |
 |---|---|---|
 | Staged changes exist | single | One commit of exactly the staged files |
-| Only unstaged changes | grouped | Several commits, split by conventional type and then by distinct fix or feature, each after the changes it needs |
+| Only unstaged changes | grouped | Several commits, each able to stand alone: changes that cannot build or pass apart, or that exist only for each other, such as a change and the tests and docs that cover it, share a commit; independent ones split by type and outcome, and each lands after the commits it needs. When the split is a close call, such as tests filling gaps across several suites, they stay one commit unless reviewing them together would take about an hour or more |
 | `--amend` | amend | Interactive: message only, or fold in staged changes |
 
-Untracked files are never touched; mark a new file with `git add -N` to include it. Stage specific files first to control exactly what one commit contains. The one question grouped mode asks is when a single code file holds pieces of two commits, since committing it whole would leave the earlier commit incomplete.
+Untracked files are never touched; mark a new file with `git add -N` to include it. Stage specific files first to control exactly what one commit contains. Grouped mode asks no questions and stages nothing itself; each commit names its files to the gate. When one source file holds pieces of two changes, it commits them together, since a split by file would leave the earlier commit incomplete. Its summary gives each commit's reason and says which changes a shared file joined.
 
 ## What it produces
 
 - Subjects in `type(scope): description` form, under 72 characters
-- A body only when bullets add information the diff does not state; 2–4 bullets, 8 at most
+- A body only when bullets add information the diff does not state; 1–4 bullets, 6 at most
 - A first `- Why:` bullet when the change has a cause from outside the code (a trigger, an environment, an outside requirement, a measured figure); most commits skip it, and `docs`, `chore`, and `test` commits never carry one
 - Each commit printed with its file list before it runs, and `git log -1` after
 
@@ -36,7 +36,7 @@ Installing the skill opts into two opinions. Both are enforced by the lint, so t
 ## Files
 
 - `SKILL.md` — the workflow the agent follows
-- `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--commit <file>` lints each message and runs `git commit -F` only on a clean result, so a failed or warned message is never committed
+- `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--commit <file> -- <paths>` lints each message and commits exactly those paths only on a clean result, so a failed or warned message is never committed and a stopped commit leaves nothing staged; `--size <paths>` counts the changed lines a reviewer reads, for the close grouping calls
 - `examples/commit-messages.md` — messages in each shape, plus ones the lint rejects
 - `evidence/` — recorded runs, most against a bare agent on the same input, one case per file, with the method to rerun them
 

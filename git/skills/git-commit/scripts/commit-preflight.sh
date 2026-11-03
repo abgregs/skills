@@ -6,10 +6,14 @@
 #                                       groupings by top-level dir)
 #   commit-preflight.sh --lint <file>   lint a commit message written to a
 #                                       file; exit 0 = OK, 1 = violations
-#   commit-preflight.sh --commit <file> [--accept-warnings]
-#                                       lint, then `git commit -F <file>` only
-#                                       on a clean result; exit 1 = failed,
-#                                       2 = warned, not committed
+#   commit-preflight.sh --commit <file> [--accept-warnings] [-- <path>...]
+#                                       lint, then commit only on a clean
+#                                       result: exactly the named paths, or
+#                                       the index when none are named; exit
+#                                       1 = failed, 2 = warned, not committed
+#   commit-preflight.sh --size <path>...
+#                                       changed lines a reviewer reads in a
+#                                       proposed commit, lockfiles excluded
 # The model judges grouping and message content; this script owns everything
 # regex-checkable. No `set -e` — a zero-match grep must not abort the report.
 set -u
@@ -17,6 +21,7 @@ set -u
 # A relative message path belongs to the caller's cwd; resolve it, and this
 # script's own path, before the cd below moves us to the repo root.
 SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+CALLER="$PWD"
 case "${1:-}" in
   --lint|--commit)
     case "${2:-}" in
@@ -138,7 +143,7 @@ if [ "${1:-}" = "--lint" ]; then
   if [ "$(wc -l < "$MSG")" -gt 1 ]; then
     [ -z "$(sed -n '2p' "$MSG")" ] || err "line 2 must be blank between subject and body"
     BULLETS="$(grep -c '^- ' "$MSG" || true)"
-    [ "$BULLETS" -le 8 ] || err "body has $BULLETS bullets (hard cap 8 — summarize at a higher level)"
+    [ "$BULLETS" -le 6 ] || err "body has $BULLETS bullets (hard cap 6 — summarize at a higher level)"
     # A bullet too long for one line wraps onto lines indented two spaces.
     grep -nE '^(- |  [^ ])' "$MSG" | awk -F: 'length($0)-length($1)-1 > 100 {print "LINT WARN: line " $1 " exceeds ~100 chars — trim it, or wrap it onto a line indented two spaces"}'
     grep -vE '^(- |  [^ ]|$)' "$MSG" | tail -n +2 | grep -q . \
@@ -151,20 +156,65 @@ fi
 
 # The only path to a commit: the lint result, not the model, decides whether
 # git runs. A warning blocks until the line is fixed or explicitly accepted.
+# Named paths are committed with `git commit -- <paths>`, which takes exactly
+# those paths from the tree and nothing else, so a stopped commit leaves no
+# staged files behind to leak into the next one. Paths resolve from the
+# caller's directory, as git would resolve them there.
 if [ "${1:-}" = "--commit" ]; then
-  MSG="${2:?usage: commit-preflight.sh --commit <message-file> [--accept-warnings]}"
+  USAGE="usage: commit-preflight.sh --commit <message-file> [--accept-warnings] [-- <path>...]"
+  MSG="${2:?$USAGE}"; shift 2
+  ACCEPT=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --accept-warnings) ACCEPT=1; shift ;;
+      --) shift; break ;;
+      *) echo "$USAGE"; exit 1 ;;
+    esac
+  done
+  # A named path takes the whole file from the tree; with hunks staged by
+  # hand, that would commit more than the user chose.
+  if [ $# -gt 0 ] && ! git diff --cached --quiet; then
+    echo "NOT COMMITTED: changes are staged — commit the index without paths (single mode), or unstage them before naming paths"
+    exit 1
+  fi
+  if [ $# = 0 ] && git diff --cached --quiet; then
+    echo "NOT COMMITTED: nothing staged — name this commit's paths after --"
+    exit 1
+  fi
   OUT="$(bash "$SELF" --lint "$MSG")"; RC=$?
   echo "$OUT"
   if [ "$RC" != 0 ]; then
     echo "NOT COMMITTED: lint failed — fix the message in $MSG and run --commit again"
     exit 1
   fi
-  if echo "$OUT" | grep -q '^LINT WARN' && [ "${3:-}" != "--accept-warnings" ]; then
+  if echo "$OUT" | grep -q '^LINT WARN' && [ "$ACCEPT" = 0 ]; then
     echo "NOT COMMITTED: lint warned — fix each warned line in $MSG and run --commit again; add --accept-warnings only when every warning misreads its line"
     exit 2
   fi
-  git commit -F "$MSG"
+  if [ $# -gt 0 ]; then
+    git -C "$CALLER" commit -F "$MSG" -- "$@"
+  else
+    git commit -F "$MSG"
+  fi
   exit $?
+fi
+
+# Review size of a proposed commit, for the close calls in grouping: the
+# changed lines a reviewer reads, from the caller's directory like git.
+# Lockfiles and binaries are left out, since no one reads them line by line.
+if [ "${1:-}" = "--size" ]; then
+  shift
+  [ $# -gt 0 ] || { echo "usage: commit-preflight.sh --size <path>..."; exit 1; }
+  LOCKS='(^|/)(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|Cargo\.lock|Gemfile\.lock|composer\.lock|poetry\.lock|uv\.lock|Pipfile\.lock|go\.sum|Package\.resolved|flake\.lock|mix\.lock|pubspec\.lock)$'
+  git -C "$CALLER" diff --numstat HEAD -- "$@" | LOCKS="$LOCKS" awk -F'\t' '
+    $1 == "-" || $3 ~ ENVIRON["LOCKS"] { skipped++; next }
+    { lines += $1 + $2; files++ }
+    END {
+      printf "review size: %d changed lines in %d files", lines, files
+      if (skipped) printf " (%d lockfile or binary files left out)", skipped
+      print "; about 400 changed lines is an hour of review"
+    }'
+  exit 0
 fi
 
 # ---- preflight report
@@ -209,7 +259,7 @@ if [ "$NPATHS" -le 1 ] && [ "$TOTAL" -le 50 ]; then
   elif [ -n "$UNSTAGED" ]; then git diff --stat | sed 's/^/    /'
   else echo "$UNTRACKED" | sed 's/^/    (untracked) /'
   fi
-  echo "== END PREFLIGHT (compact) — read the diff, lint the message with --lint, commit =="
+  echo "== END PREFLIGHT (compact) — read the diff, commit through --commit =="
   exit 0
 fi
 
@@ -237,4 +287,4 @@ if [ "$(printf '%s\n' "$SPREAD" | grep -c .)" -gt 1 ]; then
   printf '%s\n' "$SPREAD" | sed 's/^/    /'
 fi
 echo
-echo "== END PREFLIGHT — analyze diffs, group, then lint each message with --lint before committing =="
+echo "== END PREFLIGHT — analyze diffs, group, then commit each group through --commit -- <paths> =="

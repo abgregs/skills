@@ -36,12 +36,11 @@ The subject names the change but not what triggered the bug. Without the `Why:` 
 
 ## Grouped mode — one dirty tree, two intents
 
-Unstaged changes touched a migration, its model, and an unrelated README fix. The migration and the model are one feature, since neither works without the other. The README fix describes nothing in that feature, so it takes `docs` and a commit of its own; a README section about `archived_at` would have gone in the `feat` commit. The skill prints an overview, then commits each change after the changes it needs:
+Unstaged changes touched a migration, its model, and an unrelated README fix. The migration and the model are one feature: the new column exists only for the model that reads it. The README fix describes nothing in that feature, so it takes `docs` and a commit of its own; a README section about `archived_at` would have gone in the `feat` commit. The skill commits each change after the changes it needs, then gives each commit its reason in the summary:
 
 ```
-Planned commits:
-1. feat(db): add archived_at to projects          — migration + model
-2. docs(readme): fix the local setup command      — README only
+1. feat(db): add archived_at to projects          — bound: a migration and the model that reads it
+2. docs(readme): fix the local setup command      — separate: covers nothing in commit 1
 ```
 
 ```
@@ -59,7 +58,7 @@ docs(readme): fix the local setup command
 
 - `feat: Add pagination (closes #12)` — parentheses in the description, capitalised verb
 - `fix(auth): expire tokens. Generated with help from an AI assistant` — provenance in the message
-- A body of nine bullets — past the hard cap of 8; summarize at a higher level
+- A body of seven bullets — past the hard cap of 6; summarize at a higher level
 - `docs(readme): fix the setup command` with a `- Why:` bullet — `docs`, `chore`, and `test` commits take none
 - A `- Why:` bullet anywhere but first
 
