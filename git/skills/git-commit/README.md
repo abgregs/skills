@@ -38,7 +38,7 @@ Installing the skill opts into two opinions. Both are enforced by the lint, so t
 - `SKILL.md` — the workflow the agent follows
 - `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--commit <file> -- <paths>` lints each message and commits exactly those paths only on a clean result, so a failed or warned message is never committed and a stopped commit leaves nothing staged; `--size <paths>` counts the changed lines a reviewer reads, for the close grouping calls
 - `examples/commit-messages.md` — messages in each shape, plus ones the lint rejects
-- `evidence/` — recorded runs, most against a bare agent on the same input, one case per file, with the method to rerun them
+- `evidence/` — recorded runs, most against a bare agent on the same input, one case per file, with the method to rerun them, and a history of the earlier runs that shaped the rules
 
 ## Requirements
 
