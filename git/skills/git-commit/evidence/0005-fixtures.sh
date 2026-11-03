@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build the case 0005 probe fixtures: 0005-fixtures.sh <out dir>
-# Fourteen tiny Python repos, each with a two-commit conventional history and
+# Nineteen tiny Python repos, each with a two-commit conventional history and
 # one dirty change. Expected answers are in 0005.md. Uses BSD (macOS) sed -i.
 mkdir -p "${1:?usage: 0005-fixtures.sh <out dir>}" && OUT="$(cd "$1" && pwd)"
 new() { # name
@@ -498,4 +498,130 @@ def test_receipt_shows_dollars():
     assert receipt_line(ITEMS) == "Total: $12.00"
 EOF
 
-for p in P1 P2 P3 P4 P5 P6 H1 H2 H3 H4 H5 H6 H7 H8; do echo "$p: $(git -C "$OUT/$p" diff --shortstat)"; done
+# H9 a refactor and the feature that uses it, in one file: one feat commit.
+new H9
+cat > src/report.py <<'EOF'
+def render_text(orders):
+    lines = []
+    for o in orders:
+        total = o["qty"] * o["price"]
+        lines.append(f'{o["sku"]}  {o["qty"]} x {o["price"]:.2f} = {total:.2f}')
+    return "\n".join(lines)
+EOF
+c 'feat(report): render orders as text'
+printf 'from src.report import render_text\n\n\ndef test_text():\n    assert render_text([{"sku": "A", "qty": 2, "price": 1.5}]) == "A  2 x 1.50 = 3.00"\n' > tests/test_report.py
+c 'test(report): cover text rendering'
+cat > src/report.py <<'EOF'
+def rows(orders):
+    for o in orders:
+        yield o["sku"], o["qty"], o["price"], o["qty"] * o["price"]
+
+
+def render_text(orders):
+    return "\n".join(f"{s}  {q} x {p:.2f} = {t:.2f}" for s, q, p, t in rows(orders))
+
+
+def render_markdown(orders):
+    head = "| sku | qty | price | total |\n|---|---|---|---|"
+    body = "\n".join(f"| {s} | {q} | {p:.2f} | {t:.2f} |" for s, q, p, t in rows(orders))
+    return head + "\n" + body
+EOF
+printf '\n\ndef test_markdown():\n    from src.report import render_markdown\n    assert render_markdown([{"sku": "A", "qty": 2, "price": 1.5}]).splitlines()[2] == "| A | 2 | 1.50 | 3.00 |"\n' >> tests/test_report.py
+
+# H10 a rename across files and an unrelated fix: a refactor and a fix commit.
+new H10
+cat > src/geo.py <<'EOF'
+def dist(a, b):
+    return ((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5
+EOF
+cat > src/route.py <<'EOF'
+from .geo import dist
+
+
+def length(points):
+    return sum(dist(a, b) for a, b in zip(points, points[1:]))
+EOF
+cat > src/names.py <<'EOF'
+def initials(name):
+    return "".join(part[0] for part in name.split(" ")).upper()
+EOF
+c 'feat(geo): add route length and initials'
+printf 'from src.names import initials\n\n\ndef test_initials():\n    assert initials("ada lovelace") == "AL"\n' > tests/test_names.py
+c 'test(names): cover initials'
+sed -i '' 's/def dist(/def distance(/' src/geo.py
+sed -i '' 's/import dist$/import distance/; s/dist(a, b)/distance(a, b)/' src/route.py
+sed -i '' 's/name.split(" ")/name.split()/' src/names.py
+printf '\n\ndef test_double_space():\n    assert initials("ada  lovelace") == "AL"\n' >> tests/test_names.py
+
+# H11 a seam added only so a new test can reach the code: one test commit.
+new H11
+cat > src/fetcher.py <<'EOF'
+import urllib.request
+
+
+def fetch_status(url):
+    with urllib.request.urlopen(url) as r:
+        return r.status
+EOF
+c 'feat(fetcher): report the HTTP status of a URL'
+printf 'from src import fetcher\n\n\ndef test_has_fetch_status():\n    assert callable(fetcher.fetch_status)\n' > tests/test_fetcher.py
+c 'test(fetcher): check fetch_status exists'
+cat > src/fetcher.py <<'EOF'
+import urllib.request
+
+
+def fetch_status(url, opener=urllib.request.urlopen):
+    # opener is injectable so tests can run without the network.
+    with opener(url) as r:
+        return r.status
+EOF
+cat >> tests/test_fetcher.py <<'EOF'
+
+
+class _Resp:
+    status = 204
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def test_returns_status_without_network():
+    assert fetcher.fetch_status("http://x", opener=lambda url: _Resp()) == 204
+EOF
+
+# H12 and H13 are close calls, observed and not scored: tests closing gaps in
+# three suites, small in H12 (one sitting) and about 1,050 lines in H13.
+gap_base() {
+  printf 'def clamp(x, lo, hi):\n    return max(lo, min(x, hi))\n' > src/clamp.py
+  printf 'def sign(x):\n    return (x > 0) - (x < 0)\n' > src/sign.py
+  printf 'def pad(s, n):\n    return s.rjust(n, "0")\n' > src/pad.py
+  c 'feat(util): add clamp, sign, and pad'
+  printf 'from src.clamp import clamp\n\n\ndef test_inside():\n    assert clamp(5, 0, 10) == 5\n' > tests/test_clamp.py
+  printf 'from src.sign import sign\n\n\ndef test_positive():\n    assert sign(3) == 1\n' > tests/test_sign.py
+  printf 'from src.pad import pad\n\n\ndef test_short():\n    assert pad("7", 3) == "007"\n' > tests/test_pad.py
+  c 'test(util): cover the common case of each helper'
+}
+new H12
+gap_base
+printf '\n\ndef test_below():\n    assert clamp(-1, 0, 10) == 0\n\n\ndef test_above():\n    assert clamp(11, 0, 10) == 10\n' >> tests/test_clamp.py
+printf '\n\ndef test_zero():\n    assert sign(0) == 0\n\n\ndef test_negative():\n    assert sign(-2) == -1\n' >> tests/test_sign.py
+printf '\n\ndef test_already_long():\n    assert pad("1234", 3) == "1234"\n' >> tests/test_pad.py
+
+new H13
+gap_base
+for i in $(seq -60 60); do
+  n=${i#-}; [ "$i" -lt 0 ] && n="m$n"
+  printf '\n\ndef test_clamp_%s():\n    assert clamp(%d, -25, 25) == %d\n' "$n" "$i" "$(( i < -25 ? -25 : (i > 25 ? 25 : i) ))" >> tests/test_clamp.py
+done
+for i in $(seq -50 50); do
+  n=${i#-}; [ "$i" -lt 0 ] && n="m$n"
+  printf '\n\ndef test_sign_%s():\n    assert sign(%d) == %d\n' "$n" "$i" "$(( (i > 0) - (i < 0) ))" >> tests/test_sign.py
+done
+for i in $(seq 1 40); do
+  printf '\n\ndef test_pad_%d():\n    assert len(pad("%d", 6)) == %d\n' "$i" "$i" "$(( ${#i} > 6 ? ${#i} : 6 ))" >> tests/test_pad.py
+done
+
+for p in P1 P2 P3 P4 P5 P6 H1 H2 H3 H4 H5 H6 H7 H8 H9 H10 H11 H12 H13; do echo "$p: $(git -C "$OUT/$p" diff --shortstat)"; done
