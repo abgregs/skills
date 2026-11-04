@@ -6,11 +6,13 @@
 #                                       groupings by top-level dir)
 #   commit-preflight.sh --lint <file>   lint a commit message written to a
 #                                       file; exit 0 = OK, 1 = violations
-#   commit-preflight.sh --commit <file> [--accept-warnings] [-- <path>...]
+#   commit-preflight.sh --commit <file> [--accept-warnings] [--amend [--message-only]] [-- <path>...]
 #                                       lint, then commit only on a clean
 #                                       result: exactly the named paths, or
-#                                       the index when none are named; exit
-#                                       1 = failed, 2 = warned, not committed
+#                                       the index when none are named, or
+#                                       amend the last commit with the index
+#                                       (its message only with --message-only);
+#                                       exit 1 = failed, 2 = warned, not committed
 #   commit-preflight.sh --size <path>...
 #                                       changed lines a reviewer reads in a
 #                                       proposed commit, lockfiles excluded
@@ -161,23 +163,34 @@ fi
 # staged files behind to leak into the next one. Paths resolve from the
 # caller's directory, as git would resolve them there.
 if [ "${1:-}" = "--commit" ]; then
-  USAGE="usage: commit-preflight.sh --commit <message-file> [--accept-warnings] [-- <path>...]"
+  USAGE="usage: commit-preflight.sh --commit <message-file> [--accept-warnings] [--amend [--message-only]] [-- <path>...]"
   MSG="${2:?$USAGE}"; shift 2
-  ACCEPT=0
+  ACCEPT=0; AMEND=0; MSGONLY=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --accept-warnings) ACCEPT=1; shift ;;
+      --amend) AMEND=1; shift ;;
+      --message-only) MSGONLY=1; shift ;;
       --) shift; break ;;
       *) echo "$USAGE"; exit 1 ;;
     esac
   done
+  # An amend takes the index as the user confirmed it, and an empty index
+  # rewords the message only, so it names no paths and needs nothing staged.
+  if [ "$AMEND" = 1 ] && [ $# -gt 0 ]; then
+    echo "NOT COMMITTED: --amend takes the index, not paths — stage the files to fold in"
+    exit 1
+  fi
+  if [ "$MSGONLY" = 1 ] && [ "$AMEND" = 0 ]; then
+    echo "$USAGE"; exit 1
+  fi
   # A named path takes the whole file from the tree; with hunks staged by
   # hand, that would commit more than the user chose.
   if [ $# -gt 0 ] && ! git diff --cached --quiet; then
     echo "NOT COMMITTED: changes are staged — commit the index without paths (single mode), or unstage them before naming paths"
     exit 1
   fi
-  if [ $# = 0 ] && git diff --cached --quiet; then
+  if [ "$AMEND" = 0 ] && [ $# = 0 ] && git diff --cached --quiet; then
     echo "NOT COMMITTED: nothing staged — name this commit's paths after --"
     exit 1
   fi
@@ -191,7 +204,13 @@ if [ "${1:-}" = "--commit" ]; then
     echo "NOT COMMITTED: lint warned — fix each warned line in $MSG and run --commit again; add --accept-warnings only when every warning misreads its line"
     exit 2
   fi
-  if [ $# -gt 0 ]; then
+  # --only with no paths rewords the last commit and leaves anything staged
+  # in place, so a message-only amend never folds in the user's index.
+  if [ "$MSGONLY" = 1 ]; then
+    git commit --amend --only -F "$MSG"
+  elif [ "$AMEND" = 1 ]; then
+    git commit --amend -F "$MSG"
+  elif [ $# -gt 0 ]; then
     git -C "$CALLER" commit -F "$MSG" -- "$@"
   else
     git commit -F "$MSG"

@@ -1,7 +1,7 @@
 ---
 name: git-commit
-description: Generate conventional commit messages and execute commits autonomously. Use when the user is committing code or asks for a commit message. Commits staged changes as one commit (single mode), splits unstaged changes into logical commits (grouped mode), or interactively amends the last commit (--amend).
-argument-hint: "Optional — commit type, flags, or --amend"
+description: Writes and groups commits in plain technical English, each standing alone and passing a lint gate. Use when the user asks to commit: staged changes become one commit, unstaged changes are split, and --amend interactively rewords or extends the last commit.
+argument-hint: "Optional — --amend"
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Edit
 ---
 
@@ -34,10 +34,11 @@ mode (single vs grouped), recent subjects (match their scope naming and
 tone), staged/unstaged/untracked stats, an oversized-diff warning, and — when
 the change spans paths — an informational file-spread summary. Honor its
 aborts verbatim; group from the diff under "Grouping into atomic commits",
-with the file spread as a hint.
+with the file spread as a hint. With `--amend`, skip the preflight and go to
+the **Amend workflow** below: its clean-tree stop would end a message-only
+amend before it starts.
 
-Mode: `--amend` argument → **Amend workflow** below. Otherwise the preflight
-report states the mode: staged changes exist → **single mode** (one commit
+The preflight report states the mode: staged changes exist → **single mode** (one commit
 for the staged changes only); only unstaged changes → **grouped mode**
 (split into logical commits).
 
@@ -105,17 +106,17 @@ Show `git log --oneline -n <commits made>` and confirm state with `git status`. 
 
 ## Amend workflow (`--amend` — interactive)
 
-1. Show current state — file context BEFORE the message so the AskUserQuestion prompt doesn't push it out of view: `git diff --cached --stat` (newly staged, will fold in), `git diff --stat` (unstaged, will NOT be included), then `git log -1 --format='%H%n%s%n%n%b'`.
-2. AskUserQuestion: "Amend message only" / "Amend with staged changes" / "Cancel". If message-only is chosen while changes are staged, warn that `git commit --amend` would include them and confirm unstage-first vs include.
+1. Show current state — file context BEFORE the message so the AskUserQuestion prompt doesn't push it out of view: `git diff --cached --stat` (staged, folds in only with staged changes), `git diff --stat` (unstaged, will NOT be included), then `git log -1 --format='%H%n%s%n%n%b'`.
+2. AskUserQuestion: "Amend message only" / "Amend with staged changes" / "Cancel". Message only leaves anything staged in place.
 3. Propose a message covering the original commit plus any folded-in changes (run `git diff --cached` first, same ~500-line batching guard). Write it to a `mktemp` file and lint it with `bash <skill-base-dir>/scripts/commit-preflight.sh --lint <file>`; fix every LINT FAIL line and every LINT WARN line except one that misreads its line, then AskUserQuestion: "Accept and amend" / "Edit message" / "Cancel".
-4. Run `git commit --amend -F <file>` with the linted file, after writing any edit the user made into it and linting again, and verify with `git log -1 --oneline`. If the branch tracks a remote, warn that updating it requires a force-push.
+4. Write any edit the user made into the file, then amend through the gate: `bash <skill-base-dir>/scripts/commit-preflight.sh --commit <file> --amend`, with no `--` or paths, since the amend takes the index as confirmed in step 2. For a message-only amend, add `--message-only` after `--amend`: the gate rewords the commit and leaves the index as it is. On exit 1 or 2, fix the flagged lines and run it again, as for any commit. Verify with `git log -1 --oneline`. If the branch tracks a remote, warn that updating it requires a force-push.
 
 ## Guardrails
 
 - Never force push or use destructive git commands; never bypass hooks with `--no-verify` unless explicitly requested
 - Pre-commit hook failure: show the full hook output, fix auto-fixable issues (lint/format) with Edit, and rerun the same `--commit` call once; grouped mode stages nothing, since the named paths carry the fixed files, and single mode re-stages only the files the hook flagged, stopping to report instead when a flagged file has unstaged hunks. If it fails again the same way, stop and report
 - Commit-msg hook rejection: the same message cannot pass twice, so read the hook's output (and its source, if the rule is not stated), rewrite the subject to the rule it enforces, re-lint, and retry once; if it rejects again, stop and show both messages with the hook output
-- Every commit takes its files from the gate: named paths in grouped mode, the user's index in single mode; `git add -A`, `-u`, and `.` are never used, even when the tree holds nothing else
+- Every commit and amend goes through the gate and takes its files from it: named paths in grouped mode, the user's index in single and amend mode; `git add -A`, `-u`, and `.` are never used, even when the tree holds nothing else
 - Respect the user's staging selection — if they staged specific files, commit exactly those
 - Grouping is your judgment under "Grouping into atomic commits"; make every grouping call yourself, since a commit split one way or another is cheap to live with
 
