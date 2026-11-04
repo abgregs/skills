@@ -26,6 +26,8 @@ Untracked files are never touched; mark a new file with `git add -N` to include 
 - A first `- Why:` bullet when the change has a cause from outside the code (a trigger, an environment, an outside requirement, a measured figure); most commits skip it, and `docs`, `chore`, and `test` commits never carry one
 - Each commit printed with its file list before it runs, and `git log -1` after
 
+For real messages from recorded runs, see the evidence: a `Why:` naming the trigger in [0001](evidence/0001.md), a repo's own ticket format in [0003](evidence/0003.md), a shared file joining two fixes in [0004](evidence/0004.md), and a three-commit split with a close call kept whole in [0006](evidence/0006.md).
+
 ## Stances
 
 Installing the skill opts into two opinions. Both are enforced by the lint, so they are worth knowing before the first run.
@@ -37,12 +39,11 @@ Installing the skill opts into two opinions. Both are enforced by the lint, so t
 
 - `SKILL.md` — the workflow the agent follows
 - `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--commit <file> -- <paths>` lints each message and commits exactly those paths only on a clean result, so a failed or warned message is never committed and a stopped commit leaves nothing staged; `--size <paths>` counts the changed lines a reviewer reads, for the close grouping calls
-- `examples/commit-messages.md` — messages in each shape, plus ones the lint rejects
 - `evidence/` — recorded runs, most against a bare agent on the same input, one case per file, with the method to rerun them, and a history of the earlier runs that shaped the rules
 
 ## Requirements
 
-`git` and `bash`. No network access. Pre-commit hooks run normally; the skill never passes `--no-verify` or force-pushes.
+`git` and `bash`. No network access. The skill runs on whatever model the session uses; every recorded run in `evidence/` used `claude-sonnet-5-5`, and no other model has been tested. Pre-commit hooks run normally; the skill never passes `--no-verify` or force-pushes.
 
 ## Install
 
