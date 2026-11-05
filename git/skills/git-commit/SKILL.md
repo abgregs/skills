@@ -1,6 +1,6 @@
 ---
 name: git-commit
-description: Writes and groups commits in plain technical English, each standing alone and passing a lint gate. Use when the user asks to commit: staged changes become one commit, unstaged changes are split, and --amend interactively rewords or extends the last commit.
+description: Writes and groups commits in plain technical English, each standing alone and passing a lint gate. Use when the user asks to commit. Staged changes become one commit, unstaged changes are split, and --amend interactively rewords or extends the last commit.
 argument-hint: "Optional — --amend"
 allowed-tools: Bash, Read, Glob, Grep, AskUserQuestion, Edit
 ---
