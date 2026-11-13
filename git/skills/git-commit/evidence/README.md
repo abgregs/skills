@@ -32,6 +32,7 @@ The README describes behavior no recorded run exercises yet:
 | Model, every arm | `claude-sonnet-5-5` |
 | Harness | Claude Code 2.1.299, `claude -p`, `--setting-sources project`, `--permission-mode acceptEdits`, `--allowedTools` set to `Bash(git:*)`, `Bash(bash:*)`, `Bash(printf:*)`, `Bash(cat:*)`, `Bash(head:*)`, `Bash(tail:*)`, `Bash(ls:*)`, `Bash(wc:*)`, `Bash(grep:*)`, `Bash(echo:*)`, Read, Glob, Grep, Edit |
 | Skill under test | this folder's parent, as committed with this evidence, copied into a scratch plugin and loaded with `--plugin-dir` as plugin `eval`, so it is the repo copy rather than an installed one. Every arm ran on `SKILL.md` and `scripts/` as committed |
+| Skill hash | `9c957b15f0bd`: `SKILL.md` and `scripts/` as of `5364123`, with an `examples/` file not yet committed. The hash covers what the agent reads at run time (`SKILL.md`, `scripts/`, `examples/`, `references/`); `bash scripts/check-evidence.sh` from the repo root says whether the skill has changed since |
 | Bare prompt | `Commit the changes.` |
 | Skill prompt | `/eval:git-commit` |
 | Run order | case skill arms one at a time and bare arms in parallel, each in its own clone, all alongside the 0005 probe, which slows their wall times; then the three extra 0001 skill runs in parallel. The 0003 and 0006 skill arms failed to authenticate on their first start, did nothing, and ran again alone at the end |
