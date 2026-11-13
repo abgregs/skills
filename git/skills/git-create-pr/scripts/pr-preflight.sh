@@ -5,14 +5,25 @@
 #                                           push state, existing PR, repo
 #                                           template, title style, diff) plus
 #                                           the action to take
-#   pr-preflight.sh --lint <body> [title]   lint a PR body written to a file,
-#                                           and the title if given;
-#                                           exit 0 = OK, 1 = violations
+#   pr-preflight.sh --lint <body> [title] [--existing <file>] [--keep <file>] [--accept-warnings]
+#                                           lint a PR body written to a file,
+#                                           and the title if given; --existing
+#                                           is the current body of the PR being
+#                                           updated, whose kept lines must
+#                                           survive, and --keep lists more lines
+#                                           that must; exit 0 = OK,
+#                                           1 = violations, 2 = warnings only
+#   pr-preflight.sh --ship <body> [title] [--base <branch>] [--accept-warnings]
+#                                           the only path to GitHub: preflight
+#                                           again, lint, then push and create or
+#                                           update; exit 0 = shipped, 1 = not
+#                                           shipped, 2 = lint warnings only
 #
-# The script does not touch the working tree, the index, or any local branch:
-# the model writes the body and runs the two mutating commands, so hook and API
-# output lands in its context. It DOES fetch — that writes remote-tracking refs
-# and objects, which the base comparison depends on.
+# Only --ship mutates, and only after the lint passes; the other modes never
+# touch the working tree, the index, or any local branch. Hook and gh output
+# pass through --ship, so it lands in the model's context. Every mode that
+# reads the base DOES fetch — that writes remote-tracking refs and objects,
+# which the base comparison depends on.
 #
 # It owns everything regex-checkable; the model owns what the PR says.
 # No `set -e` — a zero-match grep must not abort the report.
@@ -22,14 +33,11 @@ set -u
 # and the deleted-file list see real filenames rather than octal escapes.
 git() { command git --no-optional-locks -c core.quotePath=false "$@"; }
 
-# A relative --lint path belongs to the caller's cwd; resolve it before the cd
+# A relative --lint path belongs to the caller's cwd; remember it before the cd
 # below moves us to the repo root.
-if [ "${1:-}" = "--lint" ] && [ -n "${2:-}" ]; then
-  case "$2" in
-    /*) ;;
-    *) set -- "$1" "$PWD/$2" "${3:-}" ;;
-  esac
-fi
+CALLER="$PWD"
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+abspath() { case "$1" in /*) printf '%s\n' "$1" ;; *) printf '%s\n' "$CALLER/$1" ;; esac; }
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 [ -n "$ROOT" ] || { echo "ABORT: not a git repository."; exit 1; }
@@ -108,6 +116,60 @@ template_misses() {
   done
 }
 
+# Lines people add to a PR in GitHub that a rewrite of the body must not lose:
+# ticked boxes, images and attachments, and closing keywords (`Closes #12`).
+# Read from the rendered text, leading whitespace dropped so a kept line can
+# move to a different nesting level and still match.
+keep_lines() {
+  md_visible "$1" | sed -E 's/^[[:space:]]+//' | grep -iE \
+    -e '^[-*+] \[[xX]\] ' \
+    -e '!\[[^]]*\]\([^)]+\)' -e '<img[[:space:]]' -e 'github\.com/user-attachments/' \
+    -e '(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+' \
+    -e '(^|[^[:alnum:]])(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+https://github\.com/[^[:space:]]+/issues/[0-9]+' \
+    | awk '!seen[$0]++'
+}
+
+# One body's visible lines as a sorted set, for comparing versions.
+line_set() { md_visible "$1" | sed -E 's/^[[:space:]]+//' | grep -v '^$' | sort -u; }
+
+# Lines other people added to the body since the PR opened, still in it now,
+# as "login<TAB>line". GitHub keeps every saved version of a PR body with the
+# login that saved it; a line first seen in a version saved by another login
+# is theirs. The first version is the PR as opened, so it is the baseline, not
+# an addition. This skill runs as the user, so the user's own edits share its
+# login and are not told apart here. Exit 1 when the history does not load.
+other_people_lines() { # <pr-url> <pr-number> <current-body-file>
+  local slug owner name dir me n i login prev
+  slug="$(printf '%s' "$1" | sed -nE 's#^https?://[^/]+/([^/]+)/([^/]+)/pull/[0-9]+.*#\1/\2#p')"
+  [ -n "$slug" ] || return 1
+  owner="${slug%%/*}"; name="${slug#*/}"
+  dir="$(mktemp -d)"
+  if ! gh api graphql -f owner="$owner" -f name="$name" -F number="$2" \
+       -f query='query($owner:String!,$name:String!,$number:Int!){viewer{login} repository(owner:$owner,name:$name){pullRequest(number:$number){userContentEdits(first:100){nodes{editedAt editor{login} diff}}}}}' \
+       --jq '.data.viewer.login, (.data.repository.pullRequest.userContentEdits.nodes | sort_by(.editedAt) | .[] | "\u001e\(.editor.login // "")", (.diff // ""))' \
+       > "$dir/raw" 2>/dev/null; then
+    rm -r "$dir"; return 1
+  fi
+  me="$(head -1 "$dir/raw")"
+  # Split the stream into one file per version (v1, v2, ...) and its login (l1, ...).
+  awk -v d="$dir" '
+    NR == 1 { next }
+    /^\036/ { n++; sub(/^\036/, ""); print > (d "/l" n); close(d "/l" n); printf "" > (d "/v" n); next }
+    n { print >> (d "/v" n) }' "$dir/raw"
+  n="$(ls "$dir" | grep -c '^v')"
+  line_set "$3" > "$dir/now"
+  i=2
+  while [ "$i" -le "$n" ]; do
+    login="$(cat "$dir/l$i")"; prev=$((i - 1))
+    if [ -n "$login" ] && [ "$login" != "$me" ]; then
+      comm -13 <(line_set "$dir/v$prev") <(line_set "$dir/v$i") | comm -12 - "$dir/now" \
+        | sed "s/^/$login	/"
+    fi
+    i=$((i + 1))
+  done | awk -F'\t' '!seen[$2]++'
+  rm -r "$dir"
+}
+
 # Title style is read off this repo's history, never assumed. One log call.
 # Merge commits are skipped: their subjects are written by the forge, not the
 # repo's convention.
@@ -123,12 +185,46 @@ title_style() {
 }
 
 if [ "${1:-}" = "--lint" ]; then
-  BODY="${2:?usage: pr-preflight.sh --lint <body-file> [title]}"
-  TITLE="${3:-}"
+  USAGE="usage: pr-preflight.sh --lint <body-file> [title] [--existing <current-body-file>] [--keep <lines-file>] [--accept-warnings]"
+  [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }
+  BODY="$(abspath "$2")"; shift 2
+  TITLE=""; EXIST=""; KEEPX=""; ACCEPT=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --existing) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; EXIST="$(abspath "$2")"; shift 2 ;;
+      --keep) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; KEEPX="$(abspath "$2")"; shift 2 ;;
+      --accept-warnings) ACCEPT=1; shift ;;
+      *) [ -z "$TITLE" ] || { echo "$USAGE"; exit 1; }; TITLE="$1"; shift ;;
+    esac
+  done
   [ -f "$BODY" ] || { echo "lint: no such file: $BODY"; exit 1; }
   [ -s "$BODY" ] || { echo "LINT FAIL: body is empty"; exit 1; }
-  FAIL=0
+  [ -z "$EXIST" ] || [ -f "$EXIST" ] || { echo "lint: no such file: $EXIST"; exit 1; }
+  [ -z "$KEEPX" ] || [ -f "$KEEPX" ] || { echo "lint: no such file: $KEEPX"; exit 1; }
+  FAIL=0; WARNED=0
   err() { echo "LINT FAIL: $1"; FAIL=1; }
+  warn() { echo "LINT WARN: $1"; WARNED=1; }
+
+  # An update keeps what people added to the PR in GitHub: the kept shapes in
+  # the current body (--existing), and the lines other people typed (--keep,
+  # from the preflight's read of the body's history). Each kept line must
+  # appear in the new body, and is then exempt from the checks below: it is
+  # their text, not the agent's, so a ticked box there stays ticked.
+  BODY_VIS="$(md_visible "$BODY")"
+  BODY_TRIM="$(printf '%s\n' "$BODY_VIS" | sed -E 's/^[[:space:]]+//')"
+  KEEPF="$(mktemp)"
+  { [ -z "$EXIST" ] || keep_lines "$EXIST"
+    [ -z "$KEEPX" ] || sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$KEEPX" | grep -v '^$'
+  } | awk '!seen[$0]++' > "$KEEPF"
+  KEEPN=""
+  if [ -s "$KEEPF" ]; then
+    while IFS= read -r K; do
+      [ -z "$K" ] || printf '%s\n' "$BODY_TRIM" | grep -qxF -- "$K" \
+        || err "line from the current PR body is missing — carry it over verbatim: $K"
+    done < "$KEEPF"
+    KEEPN=" $(printf '%s\n' "$BODY_TRIM" | grep -nxF -f "$KEEPF" | cut -d: -f1 | tr '\n' ' ')"
+  fi
+  blank_kept() { awk -v L="$KEEPN " '{ if (index(L, " " NR " ")) print ""; else print }'; }
 
   # Prose only — fenced blocks and inline code spans blanked out. Checks that
   # look for template leftovers must not fire on the code a PR body
@@ -147,14 +243,13 @@ if [ "${1:-}" = "--lint" ]; then
     /^(    |\t)/ && $0 !~ /^[[:space:]]*([-*+]|[0-9]+[.)])[[:space:]]/ && (prev == "blank" || prev == "code") {
       print ""; prev = "code"; next
     }
-    { print; prev = ($0 ~ /^[[:space:]]*$/) ? "blank" : "text" }' "$BODY" | sed 's/`[^`]*`//g')"
+    { print; prev = ($0 ~ /^[[:space:]]*$/) ? "blank" : "text" }' "$BODY" | sed 's/`[^`]*`//g' | blank_kept)"
 
-  BODY_VIS="$(md_visible "$BODY")"
   TPL="$(find_template)"; TPLDIR="$(template_dir)"
   if [ -n "$TPL" ]; then
     MISS="$(template_misses "$TPL")"
     if [ "$MISS" = NOREQ ]; then
-      echo "LINT WARN: $TPL has no headings, labels, or checklist items — match its shape by hand"
+      echo "LINT NOTE: $TPL has no headings, labels, or checklist items — match its shape by hand"
     else
       while IFS= read -r M; do
         [ -z "$M" ] || err "repo template ($TPL) $M"
@@ -177,7 +272,7 @@ if [ "${1:-}" = "--lint" ]; then
       fi
     done
     if [ "$BEST_N" -lt 0 ]; then
-      echo "LINT WARN: no template in $TPLDIR has headings, labels, or checklist items — match the chosen one by hand"
+      echo "LINT NOTE: no template in $TPLDIR has headings, labels, or checklist items — match the chosen one by hand"
     else
       while IFS= read -r M; do
         [ -z "$M" ] || err "closest repo template ($BEST) $M"
@@ -195,7 +290,9 @@ if [ "${1:-}" = "--lint" ]; then
     ITEMS="$(printf '%s\n' "$TESTING" | grep -c '^[[:space:]]*- ')"
     [ "$ITEMS" -ge 2 ] \
       || err "Testing needs 2+ items, each naming a real path or behavior from the diff"
-    HIT="$(printf '%s\n' "$TESTING" | grep -m1 '^[[:space:]]*- \[[xX]\] ')"
+    HIT="$(printf '%s\n' "$TESTING" | grep '^[[:space:]]*- \[[xX]\] ' \
+          | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
+          | { if [ -s "$KEEPF" ]; then grep -vxF -f "$KEEPF"; else cat; fi; } | head -1)"
     [ -n "$HIT" ] \
       && err "ticked box in Testing — write it under 'Verified:' as a plain bullet with its result: $HIT"
   fi
@@ -215,9 +312,21 @@ if [ "${1:-}" = "--lint" ]; then
 
   # Provenance greps run on the code-stripped prose, so a body that
   # legitimately QUOTES an attribution string in backticks (e.g. a PR about
-  # this very lint) does not trip the wall.
+  # this very lint) does not trip the wall. A ```mermaid block is the
+  # exception: GitHub renders it as a diagram, so its labels reach the reviewer
+  # like prose and go back in, line for line.
+  MERMAID="$(awk '
+    /^[[:space:]]*(```|~~~)/ {
+      t = $0; sub(/^[[:space:]]*/, "", t)
+      if (f == "") { f = substr(t, 1, 3); m = (t ~ /^(```|~~~)[[:space:]]*mermaid([[:space:]]|$)/) }
+      else if (substr(t, 1, 3) == f) { f = ""; m = 0 }
+      print ""; next
+    }
+    f != "" && m { print; next }
+    { print "" }' "$BODY")"
   PROV_STRIP="$(mktemp)"
-  printf '%s\n' "$PROSE" > "$PROV_STRIP"
+  awk 'NR == FNR { m[FNR] = $0; next } { print ($0 == "" && (FNR in m)) ? m[FNR] : $0 }' \
+    <(printf '%s\n' "$MERMAID") <(printf '%s\n' "$PROSE") > "$PROV_STRIP"
   PROV_FILE="$PROV_STRIP"; PROV_WHAT="PR body"; PROV_ORIG="$BODY"
   # --- provenance wall (identical block in git-commit/scripts/commit-preflight.sh)
   # Carries the change, never who or what composed it. A bare tool name stays
@@ -254,13 +363,13 @@ if [ "${1:-}" = "--lint" ]; then
   orig_line() { echo "$1:$(sed -n "${1}p" "$PROV_ORIG")"; }
   HIT="$(grep -nE "^${BULLET}[A-Za-z]+ing([^[:alnum:]]|\$)" "$PROV_FILE" \
         | grep -viE "^[0-9]+:${BULLET}(bring|string|during|thing|nothing|something|anything|everything|ring|sing|king|wing|swing|spring)([^[:alnum:]]|\$)" | head -1)"
-  [ -n "$HIT" ] && echo "LINT WARN: bullet opens with an -ing word — write the action or the result: $(orig_line "${HIT%%:*}")"
+  [ -n "$HIT" ] && warn "bullet opens with an -ing word — write the action or the result: $(orig_line "${HIT%%:*}")"
   HIT="$(grep -niE '(^|[^[:alnum:]])(should|would|may|might|probably|hopefully|possibly)([^[:alnum:]]|$)' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && echo "LINT WARN: hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"
+  [ -n "$HIT" ] && warn "hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"
   HIT="$(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && echo "LINT WARN: vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
+  [ -n "$HIT" ] && warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
   # --- end clarity warnings ---
-  rm -f "$PROV_STRIP"
+  rm -f "$PROV_STRIP" "$KEEPF"
 
   if [ -n "$TITLE" ]; then
     [ "${#TITLE}" -le 70 ] || err "title is ${#TITLE} chars (max 70)"
@@ -271,8 +380,100 @@ if [ "${1:-}" = "--lint" ]; then
     fi
   fi
 
-  [ "$FAIL" = 0 ] && echo "lint: PR body OK"
-  exit "$FAIL"
+  [ "$FAIL" = 0 ] || exit 1
+  # --ship reads this exit code, so a warning stops the ship until the line is
+  # fixed or explicitly accepted.
+  if [ "$WARNED" = 1 ] && [ "$ACCEPT" = 0 ]; then
+    echo "lint: warnings — fix each warned line; add --accept-warnings only when every warning misreads its line"
+    exit 2
+  fi
+  echo "lint: PR body OK"
+  exit 0
+fi
+
+# The only path to GitHub: the lint result, not the model, decides whether
+# anything is pushed or posted. The preflight runs again first, so every abort
+# (divergence, a dirty file in the diff, a conflict on a new PR) is checked at
+# ship time, and an update is linted against the PR's body as GitHub holds it
+# now, which keeps an edit made since the first preflight too. The preflight
+# hands its facts over in a state file rather than through the model, so the
+# base, the push, the PR number and the saved body cannot be miscopied.
+if [ "${1:-}" = "--ship" ]; then
+  USAGE="usage: pr-preflight.sh --ship <body-file> [title] [--base <branch>] [--accept-warnings]"
+  [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }
+  BODY="$(abspath "$2")"; shift 2
+  TITLE=""; BASE_ARG=""; ACCEPT=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --base) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; BASE_ARG="$2"; shift 2 ;;
+      --accept-warnings) ACCEPT="--accept-warnings"; shift ;;
+      *) [ -z "$TITLE" ] || { echo "$USAGE"; exit 1; }; TITLE="$1"; shift ;;
+    esac
+  done
+  [ -f "$BODY" ] || { echo "NOT SHIPPED: no such file: $BODY"; exit 1; }
+
+  STATE="$(mktemp)"
+  OUT="$(PR_SHIP_STATE="$STATE" bash "$SELF" ${BASE_ARG:+"$BASE_ARG"} 2>&1)"; RC=$?
+  if [ "$RC" != 0 ]; then
+    printf '%s\n' "$OUT" | sed -n '/^ABORT/,$p'
+    echo "NOT SHIPPED: the preflight stopped — nothing was pushed or posted"
+    rm -f "$STATE"; exit 1
+  fi
+  printf '%s\n' "$OUT" | grep '^WARN'
+  S_BASE=""; S_PUSH=""; S_PR=""; S_EXIST=""; S_KEEP=""
+  while IFS=$'\t' read -r K V; do
+    case "$K" in
+      BASE) S_BASE="$V" ;;
+      PUSH) S_PUSH="$V" ;;
+      PR_NUM) S_PR="$V" ;;
+      EXIST) S_EXIST="$V" ;;
+      KEEP) S_KEEP="$V" ;;
+    esac
+  done < "$STATE"
+  rm -f "$STATE"
+  [ -n "$S_BASE" ] || { echo "NOT SHIPPED: the preflight reported no base"; exit 1; }
+  done_ship() { rm -f "$S_EXIST" "$S_KEEP"; exit "$1"; }
+
+  # A new PR needs a title; an update leaves the title as it is.
+  if [ -n "$S_PR" ]; then
+    [ -z "$TITLE" ] || { echo "NOT SHIPPED: #$S_PR is open, and an update leaves its title as it is — run --ship without the title"; done_ship 1; }
+  else
+    [ -n "$TITLE" ] || { echo "NOT SHIPPED: a new PR needs a title — pass it after the body file, in single quotes"; done_ship 1; }
+  fi
+
+  LARGS=(--lint "$BODY")
+  [ -n "$TITLE" ] && LARGS+=("$TITLE")
+  [ -n "$S_EXIST" ] && LARGS+=(--existing "$S_EXIST")
+  [ -n "$S_KEEP" ] && LARGS+=(--keep "$S_KEEP")
+  [ -n "$ACCEPT" ] && LARGS+=("$ACCEPT")
+  bash "$SELF" "${LARGS[@]}"; RC=$?
+  case "$RC" in
+    0) ;;
+    2) echo "NOT SHIPPED: lint warned — fix each warned line in $BODY and run --ship again"; done_ship 2 ;;
+    *) echo "NOT SHIPPED: lint failed — fix the flagged lines in $BODY and run --ship again"; done_ship 1 ;;
+  esac
+
+  if [ -n "$S_PUSH" ]; then
+    echo "push: $S_PUSH"
+    # Split on purpose: the preflight built it from a remote and a branch name,
+    # and neither can hold a space.
+    $S_PUSH 2>&1; RC=$?
+    [ "$RC" = 0 ] || { echo "NOT SHIPPED: push failed — a pre-push hook's output, if one ran, is above"; done_ship 1; }
+  fi
+
+  if [ -n "$S_PR" ]; then
+    gh pr edit "$S_PR" --body-file "$BODY" 2>&1; RC=$?
+    WHAT="updated the body of #$S_PR"
+  else
+    gh pr create --base "$S_BASE" --title "$TITLE" --body-file "$BODY" 2>&1; RC=$?
+    WHAT="opened a PR against $S_BASE"
+  fi
+  if [ "$RC" != 0 ]; then
+    echo "NOT SHIPPED: gh failed${S_PUSH:+ after the push went through} — its output is above"
+    done_ship 1
+  fi
+  echo "SHIPPED: $WHAT"
+  done_ship 0
 fi
 
 # ---- preflight report
@@ -408,17 +609,50 @@ fi
 PR="$(printf '%s\n' "$PR" | head -1)"
 
 echo "base:  $BASE  (source: $SRC, remote: $REMOTE)"
-echo "push:  ${PUSH:-not needed — remote is up to date}"
+if [ -n "$PUSH" ]; then
+  echo "push:  $PUSH  (the ship command runs it)"
+else
+  echo "push:  not needed — remote is up to date"
+fi
 [ -z "$UP_NOTE" ] || echo "       NOTE: $UP_NOTE"
 if [ -n "$PR" ]; then
   IFS=$'\t' read -r PR_NUM PR_URL PR_BASE PR_DRAFT <<<"$PR"
   echo "pr:    #$PR_NUM open  $PR_URL  base=$PR_BASE draft=$PR_DRAFT"
   [ "$PR_BASE" = "$BASE" ] \
     || echo "       NOTE: the open PR targets '$PR_BASE', you asked for '$BASE' — keep its base unless the user asked to retarget"
-  ACTION="UPDATE the body of #$PR_NUM (gh pr edit $PR_NUM --body-file)"
+  # gh pr edit --body-file replaces the whole body, so what people added in
+  # GitHub (a ticked box, a screenshot, `Closes #12`) is saved and listed here
+  # for the new body to carry. A body that cannot be read is never overwritten.
+  EXIST_FILE="$(mktemp "${TMPDIR:-/tmp}/pr-existing.XXXXXX")"
+  if ! EXIST_ERR="$(gh pr view "$PR_NUM" --json body --jq .body 2>&1 >"$EXIST_FILE")"; then
+    rm -f "$EXIST_FILE"
+    echo "ABORT: could not read the current body of #$PR_NUM — refusing to overwrite it:"
+    printf '%s\n' "$EXIST_ERR" | sed 's/^/    /'
+    exit 1
+  fi
+  echo "existing body: $EXIST_FILE  (the ship command reads it again as it ships)"
+  KEEP="$(keep_lines "$EXIST_FILE")"
+  # The lint holds the new body to these lines; --ship passes it the file.
+  KEEP_FILE="$(mktemp "${TMPDIR:-/tmp}/pr-keep.XXXXXX")"
+  if OTHERS="$(other_people_lines "$PR_URL" "$PR_NUM" "$EXIST_FILE")"; then
+    printf '%s\n' "$OTHERS" | cut -f2- | grep -v '^$' > "$KEEP_FILE"
+  else
+    OTHERS=""
+    echo "WARN: the body's edit history did not load — lines other people typed are not"
+    echo "      protected on this update, only ticked boxes, images, and closing keywords"
+  fi
+  if [ -n "$KEEP" ] || [ -n "$OTHERS" ]; then
+    echo "keep:  lines people added — carry each into the new body verbatim:"
+    [ -z "$KEEP" ] || printf '%s\n' "$KEEP" | sed 's/^/    /'
+    [ -z "$OTHERS" ] || printf '%s\n' "$OTHERS" \
+      | awk -F'\t' '$1 != last { print "    added by @" $1 ":"; last = $1 } { print "        " $2 }'
+  else
+    echo "keep:  none"
+  fi
+  ACTION="UPDATE the body of #$PR_NUM"
 else
   echo "pr:    none open for this branch"
-  ACTION="CREATE a PR (gh pr create --base $BASE --title ... --body-file)"
+  ACTION="CREATE a PR against $BASE"
 fi
 TPL="$(find_template)"; TPLDIR="$(template_dir)"
 if [ -n "$TPL" ]; then
@@ -531,11 +765,22 @@ case "$MT_RC" in
   *) CONFLICTS="" ;;
 esac
 
+# A new PR that cannot merge is stopped here, before anything is pushed.
+# Resolving it takes a rebase or a merge, which rewrites or extends the branch,
+# and that is the user's call, never this skill's. An open PR already shows its
+# conflict in GitHub, so an update goes ahead and reports it.
+if [ -n "$CONFLICTS" ] && [ -z "$PR" ]; then
+  echo "ABORT: this branch conflicts with $REMOTE/$BASE, so a new PR could not merge."
+  echo "       Resolving it takes a rebase or merge, which is the user's call. Conflicting files:"
+  printf '%s\n' "$CONFLICTS" | head -20 | sed 's/^/    /'
+  exit 1
+fi
+
 echo
 echo "-- merge risk --"
 RISK=0
 if [ -n "$CONFLICTS" ]; then
-  echo "    [conflict] real conflicts with $REMOTE/$BASE — rebase before opening:"
+  echo "    [conflict] real conflicts with $REMOTE/$BASE — name them in ## Impact:"
   printf '%s\n' "$CONFLICTS" | head -20 | sed 's/^/        /'
   RISK=1
 elif [ "$MT_RC" -gt 1 ]; then
@@ -563,5 +808,12 @@ fi
 [ "${REV:-0}" -gt 500 ] && echo "         (>500 — read path by path, not all at once)"
 echo "diff: git diff $MB HEAD$EXCLUDES"
 echo
-echo "action: ${PUSH:+$PUSH, then }$ACTION"
-echo "== END PREFLIGHT — read the diff, write the body, --lint it, then act =="
+echo "action: ${PUSH:+push, then }$ACTION"
+if [ -n "$PR" ]; then SHIP_TITLE=""; else SHIP_TITLE=" '<title>'"; fi
+echo "ship:   bash $(shq "$SELF") --ship <body-file>$SHIP_TITLE --base $(shq "$BASE")"
+# --ship reads its facts here instead of trusting the model to copy them.
+if [ -n "${PR_SHIP_STATE:-}" ]; then
+  printf 'BASE\t%s\nPUSH\t%s\nPR_NUM\t%s\nEXIST\t%s\nKEEP\t%s\n' \
+    "$BASE" "$PUSH" "${PR_NUM:-}" "${EXIST_FILE:-}" "${KEEP_FILE:-}" > "$PR_SHIP_STATE"
+fi
+echo "== END PREFLIGHT — read the diff, write the body, then run the ship command =="

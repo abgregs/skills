@@ -70,6 +70,7 @@ if [ "${1:-}" = "--lint" ]; then
   [ -f "$MSG" ] || { echo "lint: no such file: $MSG"; exit 1; }
   FAIL=0
   err() { echo "LINT FAIL: $1"; FAIL=1; }
+  warn() { echo "LINT WARN: $1"; }
   SUBJ="$(head -1 "$MSG")"
 
   ENFORCER="$(find_enforcers | head -1)"
@@ -134,11 +135,11 @@ if [ "${1:-}" = "--lint" ]; then
   orig_line() { echo "$1:$(sed -n "${1}p" "$PROV_ORIG")"; }
   HIT="$(grep -nE "^${BULLET}[A-Za-z]+ing([^[:alnum:]]|\$)" "$PROV_FILE" \
         | grep -viE "^[0-9]+:${BULLET}(bring|string|during|thing|nothing|something|anything|everything|ring|sing|king|wing|swing|spring)([^[:alnum:]]|\$)" | head -1)"
-  [ -n "$HIT" ] && echo "LINT WARN: bullet opens with an -ing word — write the action or the result: $(orig_line "${HIT%%:*}")"
+  [ -n "$HIT" ] && warn "bullet opens with an -ing word — write the action or the result: $(orig_line "${HIT%%:*}")"
   HIT="$(grep -niE '(^|[^[:alnum:]])(should|would|may|might|probably|hopefully|possibly)([^[:alnum:]]|$)' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && echo "LINT WARN: hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"
+  [ -n "$HIT" ] && warn "hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"
   HIT="$(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && echo "LINT WARN: vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
+  [ -n "$HIT" ] && warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
   # --- end clarity warnings ---
   rm -f "$PROV_STRIP"
 

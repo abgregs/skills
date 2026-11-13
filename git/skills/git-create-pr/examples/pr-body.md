@@ -5,7 +5,7 @@ A body for a branch that moved the orders endpoint from offset to cursor paginat
 ```markdown
 ## Summary
 
-Replaces offset paging on `GET /orders` with an opaque cursor so large accounts stop timing out on deep pages, while keeping `page=` working for one release.
+Large accounts timed out on deep pages of `GET /orders`. The endpoint now pages with an opaque cursor, and `page=` keeps working for one release.
 
 ## Changes
 
@@ -31,6 +31,7 @@ For the reviewer:
 ## Why it lints clean
 
 - Every required section is present and spelled as a whole line: `## Summary`, `## Changes`, `## Testing`.
+- Summary opens with the problem a reviewer weighs the change against, in the past tense, and says what the endpoint does now in a sentence of its own.
 - No bracketed placeholders remain; each testing item names a real command, path, or observable.
 - The test suite ran before the PR opened, so it sits under `Verified:` as a plain bullet with its result and run link; the staging checks need access the author did not use, so they stay unticked boxes for the reviewer.
 - Nothing describes who or what wrote it; the body ends on its last section of content.
