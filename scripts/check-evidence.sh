@@ -10,7 +10,9 @@
 # with "| Item |", a row:
 #     | Skill hash | `<12 hex>` | `<12 hex>` |      one cell per batch column;
 #                                                  the first backticked hash in
-#                                                  a cell counts, prose may follow
+#                                                  a cell counts, prose may follow;
+#                                                  a cell starting "n/a" is a batch
+#                                                  of bare arms, which load no skill
 #
 # Usage:
 #   bash scripts/check-evidence.sh            report each batch: current or STALE
@@ -51,6 +53,8 @@ for R in */skills/*/evidence/README.md; do
     LABEL="$(printf '%s' "$HEAD" | awk -F'|' -v i="$i" '{ gsub(/^ +| +$/, "", $i); print $i }')"
     CELL="$(printf '%s' "$HASHES" | awk -F'|' -v i="$i" '{ gsub(/^ +| +$/, "", $i); print $i }')"
     [ -n "$CELL" ] || break
+    # A batch of bare arms loads no skill, so its cell reads "n/a ...".
+    case "$CELL" in n/a*) echo "    n/a      $LABEL"; i=$((i + 1)); continue ;; esac
     H="$(printf '%s' "$CELL" | grep -oE '`[0-9a-f]{12}`' | head -1 | tr -d '`')"
     [ -n "$H" ] || { echo "    NO HASH  $LABEL: the cell holds no backticked 12-character hash"; FAIL=1; i=$((i + 1)); continue; }
     [ "$LABEL" = "Value" ] && LABEL="every case"
