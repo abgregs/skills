@@ -329,6 +329,7 @@ if [ "${1:-}" = "--lint" ]; then
     <(printf '%s\n' "$MERMAID") <(printf '%s\n' "$PROSE") > "$PROV_STRIP"
   PROV_FILE="$PROV_STRIP"; PROV_WHAT="PR body"; PROV_ORIG="$BODY"
   # --- provenance wall (identical block in git-commit/scripts/commit-preflight.sh)
+  # needs from the caller: PROV_FILE (prose to check), PROV_WHAT (its name in messages), err()
   # Carries the change, never who or what composed it. A bare tool name stays
   # legal so work about an agent integration can describe itself; what fails is
   # attribution SHAPE — a byline, an authorship trailer, a session link, the
@@ -354,6 +355,7 @@ if [ "${1:-}" = "--lint" ]; then
   [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
   # --- end provenance wall ---
   # --- clarity warnings (identical block in git-commit/scripts/commit-preflight.sh)
+  # needs from the caller: PROV_FILE, PROV_WHAT, PROV_ORIG (the unstripped file, for quoting), warn()
   # The slice of Simplified Technical English that fits prose quoting
   # identifiers: no gerund bullets, no hedging verbs, no vague openers. Warnings,
   # not failures — each has a legitimate exception ("May 2026", a noun that ends
@@ -370,6 +372,57 @@ if [ "${1:-}" = "--lint" ]; then
   [ -n "$HIT" ] && warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
   # --- end clarity warnings ---
   rm -f "$PROV_STRIP" "$KEEPF"
+
+  # The countable half of the diagram rule; whether to draw, and what, stays
+  # with the model. One ```mermaid block, inside ## Summary (when the body uses
+  # the skill's template), of a type GitHub renders reliably; warnings for a
+  # diagram past about 12 nodes or 12 messages, and for an unquoted label with
+  # punctuation, which breaks the render.
+  [ -n "$TPL$TPLDIR" ] && TPLMODE=1 || TPLMODE=0
+  while IFS=$'\t' read -r KIND MSG; do
+    case "$KIND" in FAIL) err "$MSG" ;; WARN) warn "$MSG" ;; esac
+  done < <(awk -v tpl="$TPLMODE" '
+    function check(   i, j, k, s, w, ty, cnt, msgs, ids) {
+      if (!tpl && bsec != "## Summary")
+        print "FAIL\tthe mermaid block at line " start " sits under " (bsec == "" ? "no section" : bsec) " — a diagram goes at the end of ## Summary"
+      ty = ""
+      for (i = 1; i <= n; i++) {
+        s = L[i]; if (s ~ /^[[:space:]]*$/ || s ~ /^[[:space:]]*%%/) continue
+        sub(/^[[:space:]]+/, "", s); split(s, w, /[[:space:]]+/); ty = w[1]; break
+      }
+      if (ty != "flowchart" && ty != "sequenceDiagram" && ty != "stateDiagram-v2") {
+        print "FAIL\tthe mermaid block at line " start " is " (ty == "" ? "empty" : "a " ty) " — keep to flowchart, sequenceDiagram, or stateDiagram-v2"
+        return
+      }
+      cnt = 0; msgs = 0; split("", ids)
+      for (i = 1; i <= n; i++) {
+        s = L[i]; if (s ~ /^[[:space:]]*$/ || s ~ /^[[:space:]]*%%/) continue
+        if (ty == "sequenceDiagram") { if (s ~ /(-|--)(>>|>|x|\))/ && s ~ /:/) msgs++; continue }
+        if (ty == "flowchart" && (s ~ /\[[^]"]*[(){}][^]"]*\]/ || s ~ /\{[^}"]*[()][^}"]*\}/))
+          print "WARN\tline " (start + i) ": a mermaid label with punctuation needs double quotes, as in A[\"parse(input)\"]"
+        if (s ~ /^[[:space:]]*(flowchart|stateDiagram-v2|subgraph|end|direction|classDef|class|style|linkStyle|click|note)([[:space:]]|$)/) continue
+        gsub(/"[^"]*"/, "", s); gsub(/\[[^]]*\]|\([^)]*\)|\{[^}]*\}|\|[^|]*\|/, " ", s)
+        if (ty == "stateDiagram-v2") sub(/:.*/, "", s)
+        gsub(/[^A-Za-z0-9_]+/, " ", s); k = split(s, w, " ")
+        for (j = 1; j <= k; j++)
+          if (w[j] != "" && w[j] !~ /^(state|as|TB|TD|BT|RL|LR)$/ && !(w[j] in ids)) { ids[w[j]] = 1; cnt++ }
+      }
+      if (cnt > 12) print "WARN\tthe diagram at line " start " has " cnt " nodes — keep it to about 12, or leave a part out"
+      if (msgs > 12) print "WARN\tthe sequence at line " start " has " msgs " messages — keep it to about 12"
+    }
+    !inf && /^[[:space:]]*(```|~~~)/ {
+      t = $0; sub(/^[[:space:]]*/, "", t); mk = substr(t, 1, 3); inf = 1
+      ism = (substr(t, 4) ~ /^[[:space:]]*mermaid([[:space:]]|$)/)
+      if (ism) { blocks++; start = NR; bsec = sec; n = 0; split("", L) }
+      next
+    }
+    inf && /^[[:space:]]*(```|~~~)/ {
+      t = $0; sub(/^[[:space:]]*/, "", t)
+      if (substr(t, 1, 3) == mk) { if (ism) check(); inf = 0; ism = 0; next }
+    }
+    inf { if (ism) L[++n] = $0; next }
+    /^## / { sec = $0; sub(/[[:space:]]+$/, "", sec); sub(/\r$/, "", sec) }
+    END { if (blocks > 1) print "FAIL\t" blocks " mermaid blocks — the body takes one diagram" }' "$BODY")
 
   if [ -n "$TITLE" ]; then
     [ "${#TITLE}" -le 70 ] || err "title is ${#TITLE} chars (max 70)"
@@ -659,7 +712,7 @@ if [ -n "$TPL" ]; then
   # gh pr create --body-file never applies the repo template, so the body
   # written here is the only one the reviewer gets. Show the shape that is
   # enforced, not the template's prose.
-  echo "template: $TPL  (fill THIS shape — gh does not apply it for you)"
+  echo "template: $TPL  (fill THIS shape instead of the SKILL.md template — gh does not apply it, so your body is the only one the reviewer gets)"
   SHAPE="$(template_shape "$TPL" | head -25)"
   if [ -n "$SHAPE" ]; then
     printf '%s\n' "$SHAPE" | sed 's/^/    /'
@@ -784,15 +837,15 @@ if [ -n "$CONFLICTS" ]; then
   printf '%s\n' "$CONFLICTS" | head -20 | sed 's/^/        /'
   RISK=1
 elif [ "$MT_RC" -gt 1 ]; then
-  echo "    [conflict] not checked — git merge-tree unavailable here"
+  echo "    [conflict] not checked — git merge-tree is unavailable here; say so in ## Impact"
 fi
 if [ "${BEHIND_BASE:-0}" -gt 0 ]; then
-  echo "    [stale]    $REMOTE/$BASE is $BEHIND_BASE commit(s) ahead of your merge base"
+  echo "    [stale]    $REMOTE/$BASE is $BEHIND_BASE commit(s) ahead of your merge base — say in ## Impact that the base moved"
   RISK=1
 fi
 if [ -n "$DELETED" ]; then
   DEL_N="$(printf '%s\n' "$DELETED" | grep -c .)"
-  echo "    [deleted]  $DEL_N file(s) removed — callers of them break on merge:"
+  echo "    [deleted]  $DEL_N file(s) removed — in ## Changes, name what used to call or read each one:"
   printf '%s\n' "$DELETED" | head -20 | sed 's/^/        /'
   [ "$DEL_N" -gt 20 ] && echo "        ...and $((DEL_N - 20)) more"
   RISK=1

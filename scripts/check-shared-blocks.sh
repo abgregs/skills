@@ -18,8 +18,11 @@ set -u
 cd "$(git rev-parse --show-toplevel)" || exit 1
 FAIL=0
 
-# block name -> the files that must carry it, space separated
-BLOCKS="provenance wall:git/skills/git-commit/scripts/commit-preflight.sh git/skills/git-create-pr/scripts/pr-preflight.sh"
+# block name -> the files that must carry it, space separated; one block per line.
+# Each block opens with a "needs from the caller" line naming what its host
+# script must define, since the copies share a body but not a caller.
+BLOCKS="provenance wall:git/skills/git-commit/scripts/commit-preflight.sh git/skills/git-create-pr/scripts/pr-preflight.sh
+clarity warnings:git/skills/git-commit/scripts/commit-preflight.sh git/skills/git-create-pr/scripts/pr-preflight.sh"
 
 extract() { # extract <file> <name> — the block body, comments and all
   awk -v n="$2" '

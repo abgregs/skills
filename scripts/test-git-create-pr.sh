@@ -142,6 +142,51 @@ t "mermaid labels with brackets are not placeholders" 0 bash "$P" --lint "$W/mer
 t "provenance inside a mermaid block fails" 1 bash "$P" --lint "$W/mermaid-prov.md" 'Report the tap started'; has 'attribution byline'; ok
 t "a hedge inside a mermaid block warns" 2 bash "$P" --lint "$W/mermaid-hedge.md" 'Report the tap started'; has 'hedge word'; ok
 t "provenance quoted in a bash fence stays legal" 0 bash "$P" --lint "$W/fenced-prov.md"; ok
+
+# Diagram mechanics: the two diagrams from evidence 0003 and 0004 must pass.
+diagram_body() { # diagram_body <file> <mermaid text> [section the block sits under]
+  { printf '## Summary\n\nA quick stop could land before the run loop ran. The tap now reports from inside it.\n\n'
+    [ -n "${3:-}" ] && printf '## Changes\n\n- `startTap` reports from inside the loop\n\n'
+    printf '```mermaid\n%s\n```\n\n' "$2"
+    [ -z "${3:-}" ] && printf '## Changes\n\n- `startTap` reports from inside the loop\n\n'
+    printf '## Testing\n\nFor the reviewer:\n- [ ] Run `swift test`\n- [ ] Press the hotkey in the built app\n'; } > "$1"; }
+diagram_body "$W/d-0003.md" 'flowchart TD
+    A["startEngine"] --> B["selectDevice"]
+    B -->|"Bluetooth default and built-in present"| C["built-in microphone"]
+    B -->|"otherwise"| D["default input"]
+    C --> E["startUnit: pin device, then initialise"]
+    D --> E
+    E --> F["captureInputProc renders buffers"]
+    G["HAL listeners: default input, device list, sample rate, liveness"] --> H["handleDeviceChange"]
+    H -->|"different device or new rate"| I["stopUnit, then startUnit"]
+    H -->|"same device, same rate"| J["no restart"]'
+diagram_body "$W/d-0004.md" 'sequenceDiagram
+    participant M as Main actor
+    participant T as com.river.eventtap thread
+    M->>T: thread.start()
+    T->>T: CGEvent.tapCreate, CFRunLoopAddSource
+    T->>T: CFRunLoopPerformBlock(resume)
+    T->>T: CFRunLoopRun()
+    T-->>M: resume(RunningTap)
+    M->>M: set tap and tapRunLoop
+    M->>T: stopTap, CFRunLoopStop'
+t "the 0003 flowchart passes the diagram checks" 0 bash "$P" --lint "$W/d-0003.md"; ok
+t "the 0004 sequence passes the diagram checks" 0 bash "$P" --lint "$W/d-0004.md"; ok
+{ cat "$W/d-0004.md"; printf '\n```mermaid\nflowchart LR\n  A --> B\n```\n'; } > "$W/d-two.md"
+t "a second mermaid block fails" 1 bash "$P" --lint "$W/d-two.md"; has '2 mermaid blocks'; ok
+diagram_body "$W/d-placed.md" 'flowchart LR
+  A --> B' changes
+t "a mermaid block outside Summary fails" 1 bash "$P" --lint "$W/d-placed.md"; has 'sits under ## Changes'; ok
+diagram_body "$W/d-type.md" 'graph TD
+  A --> B'
+t "a diagram type outside the three fails" 1 bash "$P" --lint "$W/d-type.md"; has 'is a graph'; ok
+diagram_body "$W/d-big.md" 'flowchart LR
+  A --> B --> C --> D --> E --> F --> G
+  G --> H --> I --> J --> K --> L --> M'
+t "a flowchart past 12 nodes warns" 2 bash "$P" --lint "$W/d-big.md"; has 'has 13 nodes'; ok
+diagram_body "$W/d-quote.md" 'flowchart LR
+  A[parse(input)] --> B["fmt(n)"]'
+t "an unquoted label with punctuation warns" 2 bash "$P" --lint "$W/d-quote.md"; has 'needs double quotes'; ok
 t "a backtick title passes untouched" 0 bash "$P" --lint "$W/mermaid.md" 'Handle `null` in parse'; ok
 
 echo "== preflight report"
@@ -152,9 +197,13 @@ repo conflict yes
 t "a new PR that conflicts aborts before any action line" 1 bash "$P" main; has '^ABORT: this branch conflicts'; lacks '^action:'; ok
 export STUB_PR='7\thttps://github.com/o/r/pull/7\tmain\tfalse' STUB_BODY="$W/current.md" STUB_NUM=7
 t "an update with a conflict reports it, keeps, and ships without a title" 0 bash "$P" main
-has '\[conflict\].*name them in ## Impact'; has '^keep:'; has 'Closes #12'; has '^action: push, then UPDATE the body of #7'; has '^ship: .*--ship <body-file> --base'; lacks "'<title>'"; ok
+has '\[conflict\].*name them in ## Impact'; has '\[stale\].*say in ## Impact that the base moved'; has '^keep:'; has 'Closes #12'; has '^action: push, then UPDATE the body of #7'; has '^ship: .*--ship <body-file> --base'; lacks "'<title>'"; ok
 STUB_VIEW_FAIL=1 t "an unreadable current body aborts the update" 1 bash "$P" main; has 'refusing to overwrite'; ok
 unset STUB_PR STUB_BODY STUB_NUM
+repo deleted no
+git rm -q a.txt; git commit -qm "drop a"
+t "a deleted file says what the body owes it, without guessing at callers" 0 bash "$P" main
+has '\[deleted\]  1 file\(s\) removed — in ## Changes, name what used to call or read each one'; has '^        a\.txt$'; lacks 'break on merge'; ok
 
 echo "== ship gate"
 repo ship no

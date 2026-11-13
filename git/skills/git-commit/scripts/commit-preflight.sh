@@ -101,6 +101,7 @@ if [ "${1:-}" = "--lint" ]; then
   sed 's/`[^`]*`//g' "$MSG" > "$PROV_STRIP"
   PROV_FILE="$PROV_STRIP"; PROV_WHAT="commit message"; PROV_ORIG="$MSG"
   # --- provenance wall (identical block in git-create-pr/scripts/pr-preflight.sh)
+  # needs from the caller: PROV_FILE (prose to check), PROV_WHAT (its name in messages), err()
   # Carries the change, never who or what composed it. A bare tool name stays
   # legal so work about an agent integration can describe itself; what fails is
   # attribution SHAPE — a byline, an authorship trailer, a session link, the
@@ -126,6 +127,7 @@ if [ "${1:-}" = "--lint" ]; then
   [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
   # --- end provenance wall ---
   # --- clarity warnings (identical block in git-create-pr/scripts/pr-preflight.sh)
+  # needs from the caller: PROV_FILE, PROV_WHAT, PROV_ORIG (the unstripped file, for quoting), warn()
   # The slice of Simplified Technical English that fits prose quoting
   # identifiers: no gerund bullets, no hedging verbs, no vague openers. Warnings,
   # not failures — each has a legitimate exception ("May 2026", a noun that ends
