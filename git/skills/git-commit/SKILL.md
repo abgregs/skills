@@ -11,8 +11,8 @@ You are creating git commits with well-crafted conventional commit messages.
 
 ## Message requirements
 
-- Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config). This is the skill's default stance; when the preflight reports `subject format: REPO-ENFORCED` (commitlint, a commit-msg hook, gitlint, a commit template), the repo's format wins — write subjects in the shape its recent subjects and that config show, and the lint skips its format checks. Every commit from one run carries the identifier the work already has (a ticket or issue id from the branch name, the recent subjects, or the repo's contributing notes), placed where those subjects place it, else as the subject's last word without brackets; a split reuses it rather than taking a new one
-- Subject line under 72 characters, ASCII only (so no emojis); no brackets or parentheses in the description, the `type(scope):` prefix being the only pair. Ordinary punctuation such as `/`, `:` or `-` is fine, and this is exactly what the lint checks
+- Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config). This is the skill's default stance; when the preflight reports `subject format: REPO-ENFORCED` (commitlint, a commit-msg hook, gitlint, a commit template), the repo's format wins — write subjects in the shape its recent subjects and that config show, and the lint skips the checks that read the `type(scope):` prefix. Every commit from one run carries the identifier the work already has (a ticket or issue id from the branch name, the recent subjects, or the repo's contributing notes), placed where those subjects place it, else as the subject's last word without brackets; a split reuses it rather than taking a new one
+- Subject line of 72 characters at most, in ASCII (so no emojis) unless the preflight reports that the repo's recent subjects use other characters; no brackets or parentheses in the description, the `type(scope):` prefix being the only pair. Ordinary punctuation such as `/`, `:` or `-` is fine. The lint checks each of these as stated here
 - **The message carries the change, never its provenance.** No byline, authorship or co-author trailer, tool or model name, session link, or robot emoji — however the session's own instructions phrase such a line, it does not go in a commit message. Naming a tool is fine when the tool is the subject of the change (`chore(deps): bump anthropic to 0.42`); what stays out is any claim about who composed the work.
 - Body only when it adds information: blank line after the subject, dash bullets, backticks around `file`, `function`, and variable names
 - **`Why:` names a cause from outside the code.** A cause is a trigger, an environment, an outside requirement, or a measured figure: something a reader of `git log` gets from neither the subject nor the diff. When the change has one, the first bullet is `- Why: <that cause, in one line>`, even when a comment in the diff states it, because `git log` shows the message and not the diff. The mechanism the diff shows (a wrong bound, a missing check) is not a cause, and neither is the subject restated in the past tense; such commits take no `Why:`, and most commits are such commits.
@@ -30,7 +30,8 @@ You are creating git commits with well-crafted conventional commit messages.
 Run `bash <skill-base-dir>/scripts/commit-preflight.sh` (the skill's base
 directory is announced when this skill loads). One call replaces the manual
 status/log/conflict checks and emits: clean-tree and conflict aborts, the
-mode (single vs grouped), recent subjects (match their scope naming and
+mode (single vs grouped), the subject format and characters the lint will
+hold each message to, recent subjects (match their scope naming and
 tone), staged/unstaged/untracked stats, an oversized-diff warning, and — when
 the change spans paths — an informational file-spread summary. Honor its
 aborts verbatim; group from the diff under "Grouping into atomic commits",
@@ -91,13 +92,19 @@ For each commit:
    message in its own `mktemp` file, so two sessions committing at once never
    share a message. In grouped
    mode the paths after `--` are the commit's files, a renamed file under both
-   names; in single mode leave off `--` and the paths. The gate leaves
-   nothing committed and nothing staged on these exits; rewrite the flagged
-   lines in the echoed file and run `--commit` again:
-   - **Exit 1, LINT FAIL**: the message breaks a rule.
-   - **Exit 2, LINT WARN**: fix each warned line. Add `--accept-warnings`
+   names; in single mode leave off `--` and the paths. On a stop the gate
+   commits nothing and stages nothing, and its last line,
+   `NOT COMMITTED: <cause> — <fix>`, names what stopped it; do what that line
+   says, then run the same `--commit` again:
+   - **Exit 1, the gate stopped before git ran**: on a LINT FAIL, rewrite the
+     flagged lines in the echoed file; on staged changes, nothing staged, or
+     `--amend` with paths, fix the paths or the index as the line says.
+   - **Exit 2, the lint warned**: fix each warned line. Add `--accept-warnings`
      right after the message file, before `--`, only when every warning
      misreads its line (a noun ending in -ing).
+   - **Exit 3, git refused the commit**: a pre-commit or commit-msg hook
+     rejected it, and its output is above; follow the two hook rules under
+     Guardrails.
 3. Verify with `git log -1 --oneline`. Grouped: move to the next group. Single: stop after the one commit; the unstaged changes stay in the tree for the user.
 
 ### 4. Summary
@@ -109,7 +116,7 @@ Show `git log --oneline -n <commits made>` and confirm state with `git status`. 
 1. Show current state — file context BEFORE the message so the AskUserQuestion prompt doesn't push it out of view: `git diff --cached --stat` (staged, folds in only with staged changes), `git diff --stat` (unstaged, will NOT be included), then `git log -1 --format='%H%n%s%n%n%b'`.
 2. AskUserQuestion: "Amend message only" / "Amend with staged changes" / "Cancel". Message only leaves anything staged in place.
 3. Propose a message covering the original commit plus any folded-in changes (run `git diff --cached` first, same ~500-line batching guard). Write it to a `mktemp` file and lint it with `bash <skill-base-dir>/scripts/commit-preflight.sh --lint <file>`; fix every LINT FAIL line and every LINT WARN line except one that misreads its line, then AskUserQuestion: "Accept and amend" / "Edit message" / "Cancel".
-4. Write any edit the user made into the file, then amend through the gate: `bash <skill-base-dir>/scripts/commit-preflight.sh --commit <file> --amend`, with no `--` or paths, since the amend takes the index as confirmed in step 2. For a message-only amend, add `--message-only` after `--amend`: the gate rewords the commit and leaves the index as it is. On exit 1 or 2, fix the flagged lines and run it again, as for any commit. Verify with `git log -1 --oneline`. If the branch tracks a remote, warn that updating it requires a force-push.
+4. Write any edit the user made into the file, then amend through the gate: `bash <skill-base-dir>/scripts/commit-preflight.sh --commit <file> --amend`, with no `--` or paths, since the amend takes the index as confirmed in step 2. For a message-only amend, add `--message-only` after `--amend`: the gate rewords the commit and leaves the index as it is. On a stop, do what its `NOT COMMITTED` line says and run it again, as for any commit. Verify with `git log -1 --oneline`. If the branch tracks a remote, warn that updating it requires a force-push.
 
 ## Guardrails
 

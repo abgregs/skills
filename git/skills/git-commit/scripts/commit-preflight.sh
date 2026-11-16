@@ -12,7 +12,10 @@
 #                                       the index when none are named, or
 #                                       amend the last commit with the index
 #                                       (its message only with --message-only);
-#                                       exit 1 = failed, 2 = warned, not committed
+#                                       nothing is committed on a stop, and its
+#                                       NOT COMMITTED line names the cause:
+#                                       exit 1 = the gate stopped before git ran,
+#                                       2 = the lint warned, 3 = git refused (a hook)
 #   commit-preflight.sh --size <path>...
 #                                       changed lines a reviewer reads in a
 #                                       proposed commit, lockfiles excluded
@@ -40,9 +43,11 @@ TYPES='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
 
 # Repo-owned commit-message enforcers. The type(scope) format is this skill's
 # stance, a default for repos that have none; when the repo enforces its own
-# format, that format wins and the lint skips the stance checks. The other
-# checks (length, blank line, provenance, body shape) are walls that no
-# format conflicts with, so they always run.
+# format, that format wins and the lint skips the checks that read the
+# type(scope): prefix (its shape, brackets in the description, the types that
+# take no Why:). ASCII yields to the repo's history instead (see
+# nonascii_subjects). The other checks (length, blank line, provenance, body
+# shape) are walls that no format conflicts with, so they always run.
 find_enforcers() {
   local hooks f t
   hooks="$(git rev-parse --git-path hooks 2>/dev/null)"
@@ -65,6 +70,12 @@ find_enforcers() {
   return 0
 }
 
+# How many of the repo's last 20 subjects use characters outside printable
+# ASCII, such as a gitmoji repo's emoji. The ASCII rule yields to this history
+# rather than to an enforcer: commitlint's standard config never checks emoji,
+# so a config alone says nothing about whether the repo wants them.
+nonascii_subjects() { git log -n 20 --format=%s 2>/dev/null | LC_ALL=C grep -c '[^ -~]'; }
+
 if [ "${1:-}" = "--lint" ]; then
   MSG="${2:?usage: commit-preflight.sh --lint <message-file>}"
   [ -f "$MSG" ] || { echo "lint: no such file: $MSG"; exit 1; }
@@ -75,18 +86,23 @@ if [ "${1:-}" = "--lint" ]; then
 
   ENFORCER="$(find_enforcers | head -1)"
   if [ -n "$ENFORCER" ]; then
-    echo "lint: repo enforces its own subject format ($ENFORCER) — type(scope) checks skipped; match the repo's recent subjects"
+    echo "lint: repo enforces its own subject format ($ENFORCER) — the type(scope), bracket, and no-Why: type checks are skipped; match the repo's recent subjects"
   else
     echo "$SUBJ" | grep -qE "^($TYPES)(\([a-z0-9-]+\))?: .+" \
       || err "subject must match 'type(scope): description' with type in: $TYPES"
     DESC="$(echo "$SUBJ" | sed -E "s/^($TYPES)(\([a-z0-9-]+\))?: //")"
     echo "$DESC" | grep -q '[][(){}]' && err "description contains parentheses/brackets (allowed only in the type(scope): prefix)"
-    LC_ALL=C grep -qn '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis)"
     # These types state their own reason; a Why: bullet on one is padding.
     TYPE="$(echo "$SUBJ" | sed -nE "s/^($TYPES)(\([a-z0-9-]+\))?: .*/\1/p")"
     case "$TYPE" in
       docs|chore|test) grep -qE '^- Why:' "$MSG" && err "a $TYPE commit takes no Why: bullet — remove it" ;;
     esac
+  fi
+  NONASCII="$(nonascii_subjects)"
+  if [ "${NONASCII:-0}" -gt 0 ]; then
+    echo "lint: $NONASCII of the repo's last 20 subjects use non-ASCII characters — the ASCII check is skipped"
+  else
+    LC_ALL=C grep -q '[^ -~]' <(echo "$SUBJ") && err "subject contains non-ASCII characters (no emojis); the repo's recent subjects use none"
   fi
   # Why:, when present, is the single first bullet.
   WHYS="$(grep -c '^- Why:' "$MSG" || true)"
@@ -218,7 +234,14 @@ if [ "${1:-}" = "--commit" ]; then
   else
     git commit -F "$MSG"
   fi
-  exit $?
+  RC=$?
+  # git ran and refused: a pre-commit or commit-msg hook, or git itself. Its
+  # output is above; exit 3 keeps this stop apart from the gate's own.
+  if [ "$RC" != 0 ]; then
+    echo "NOT COMMITTED: git refused the commit (exit $RC) — a hook's output, if one ran, is above; follow the skill's hook rules"
+    exit 3
+  fi
+  exit 0
 fi
 
 # Review size of a proposed commit, for the close calls in grouping: the
@@ -263,6 +286,12 @@ enforcer_line() {
     echo "subject format: REPO-ENFORCED ($(printf '%s' "$ENFORCERS" | tr '\n' ',' | sed 's/,$//; s/,/, /g')) — write subjects in the repo's shape; the lint skips its type(scope) checks"
   else
     echo "subject format: type(scope): description (skill default — no repo enforcer found)"
+  fi
+  local n; n="$(nonascii_subjects)"
+  if [ "${n:-0}" -gt 0 ]; then
+    echo "subject characters: $n of the last 20 subjects use non-ASCII, such as emoji — the lint allows it, as the repo does"
+  else
+    echo "subject characters: ASCII only — no recent subject uses anything else"
   fi
 }
 

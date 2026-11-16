@@ -21,7 +21,7 @@ Untracked files are never touched; mark a new file with `git add -N` to include 
 
 ## What it produces
 
-- Subjects in `type(scope): description` form, under 72 characters
+- Subjects in `type(scope): description` form, 72 characters at most, in ASCII unless the repo's own recent subjects use emoji
 - A body only when bullets add information the diff does not state; 1–4 bullets, 6 at most
 - A first `- Why:` bullet when the change has a cause from outside the code (a trigger, an environment, an outside requirement, a measured figure); most commits skip it, and `docs`, `chore`, and `test` commits never carry one
 - Each commit printed with its file list before it runs, and `git log -1` after
@@ -32,13 +32,14 @@ For real messages from recorded runs, see the evidence: a `Why:` naming the trig
 
 Installing the skill opts into two opinions. Both are enforced by the lint, so they are worth knowing before the first run.
 
-- **Subject format is a default, not an override.** Subjects are `type(scope): description` when the repo has no convention of its own. When the preflight finds a repo-owned enforcer (a commitlint config, a `commit-msg` hook, gitlint, lefthook or pre-commit commit-message hooks, or `commit.template`), the repo's format wins: the skill writes subjects in the shape the repo's history and config show, and the lint skips its format checks. The repo's hook stays the judge; if it rejects a message, the skill shows the output, rewrites the subject to the hook's rule, and retries once.
+- **Subject format is a default, not an override.** Subjects are `type(scope): description` when the repo has no convention of its own. When the preflight finds a repo-owned enforcer (a commitlint config, a `commit-msg` hook, gitlint, lefthook or pre-commit commit-message hooks, or `commit.template`), the repo's format wins: the skill writes subjects in the shape the repo's history and config show, and the lint skips the checks that read the `type(scope):` prefix. Emoji follow the repo's history rather than its config: the lint allows a non-ASCII subject only when the repo's recent subjects already use one, since commitlint's standard config does not check for emoji. The repo's hook stays the judge; if it rejects a message, the skill shows the output, rewrites the subject to the hook's rule, and retries once.
 - **Messages carry the change, never its provenance.** No co-author trailer, tool or model name, session link, or robot emoji, even when the session's harness or instructions ask for one. A commit message records what changed in the code; who or what typed it is a policy question that belongs in the repo's contributing docs, not in every message. If your team requires an attribution trailer, this skill is the wrong fit as written: fork it and remove the provenance wall from `SKILL.md` and the `--lint` block, rather than trying to argue the agent past it.
 
 ## Files
 
 - `SKILL.md` — the workflow the agent follows
-- `scripts/commit-preflight.sh` — the detector: reports mode, recent subjects, and stats; `--commit <file> -- <paths>` lints each message and commits exactly those paths only on a clean result, and `--commit <file> --amend` does the same for an amend, so a failed or warned message is never committed and a stopped commit leaves nothing staged; `--size <paths>` counts the changed lines a reviewer reads, for the close grouping calls
+- `scripts/commit-preflight.sh` — the detector: reports mode, the subject format and characters, recent subjects, and stats; `--commit <file> -- <paths>` lints each message and commits exactly those paths only on a clean result, and `--commit <file> --amend` does the same for an amend, so a failed or warned message is never committed and a stopped commit leaves nothing staged; each stop prints a `NOT COMMITTED` line with its cause, and exits 1 when the gate stopped, 2 when the lint warned, and 3 when git or a hook refused; `--size <paths>` counts the changed lines a reviewer reads, for the close grouping calls
+- Tests live outside the skill folder, in the repo's `scripts/test-git-commit.sh`, so an install does not carry them
 - `evidence/` — recorded runs, most against a bare agent on the same input, one case per file, with the method to rerun them, and a history of the earlier runs that shaped the rules
 
 ## Requirements
