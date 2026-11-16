@@ -4,21 +4,21 @@ Recorded runs that back the claims in the skill's README. Each case is one branc
 
 | Case | Claim | Result |
 |---|---|---|
-| [0001](0001.md) | The body is written from the diff for a reviewer: the problem first, per-file changes, checkable testing items, no provenance | both arms read the diff this time and wrote per-file changes; the skill's Summary states the bug, its cause, and the fix in that order, where bare's opens on "no longer swallows" and leaves the cause to Impact; only bare ended with a tool footer |
-| [0002](0002.md) | Impact appears only when there is a consequence to weigh, and a change a person sees gets its screenshot spot named | bare read only the commit messages; the skill read the diff, left Impact out of a figures-only fix, and named the picker as the one screenshot spot |
-| [0003](0003.md) | A change that moves structure ends Summary with one Mermaid diagram | bare drew nothing; the skill led with the call-mode problem and drew the new capture path as a nine-node flowchart |
-| [0004](0004.md) | A change that reorders calls across threads gets a diagram of both orders | both arms read the diff; the skill drew the order that raced beside the order that does not, in one sequence, and shipped through one gate call |
-| [0005](0005.md) | A change inside one function gets no diagram; an update after a new commit rewrites the body and keeps what a reviewer added | neither arm drew one; after a follow-up commit, the skill rewrote every stale figure and kept the reviewer's tick, `Closes #1`, and screenshot; bare kept them by editing the figures in place |
-| [0006](0006.md) | An update with no new commit and no named change leaves the body alone and says why | skill only: shipped nothing, listed what the body already covers, and named what would give it a reason to change |
+| [0001](0001.md) | The body is written from the diff for a reviewer: the problem first, per-file changes, checkable testing items, no provenance | both arms read the diff and wrote per-file changes; the skill's Summary states the bug and its cause, then the fix, where bare's opens on "no longer swallows" and leaves the cause to Impact; only bare ended with a tool footer |
+| [0002](0002.md) | Impact appears only when there is a consequence to weigh, and a change a person sees gets its screenshot spot named | bare read only the commit messages; the skill read the diff and named the picker as the one screenshot spot, but this run wrote an Impact with nothing to weigh, which the rule leaves out and the run before did not write |
+| [0003](0003.md) | A change that moves structure ends Summary with one Mermaid diagram | bare drew nothing; the skill led with the call-mode problem and drew the new capture path as an eight-node flowchart |
+| [0004](0004.md) | A change that reorders calls across threads gets a diagram of both orders | both arms read the diff; the skill drew the order that raced beside the order that does not, in one sequence, and shipped through one gate call; its Testing labels a `Verified:` that holds nothing |
+| [0005](0005.md) | A change inside one function gets no diagram; an update after a new commit rewrites the body and keeps what a reviewer added | neither arm drew one; after a follow-up commit, which the preflight counted since the body's last save, the skill rewrote every stale figure and kept the reviewer's tick, `Closes #1`, and screenshot; bare kept them by editing the figures in place |
+| [0006](0006.md) | An update with no new commit and no named change leaves the body alone and says why | skill only: the preflight counted no commit since the body's last save; the skill shipped nothing in two turns and named what would give the body a reason to change |
 
 ## Not covered
 
 The README describes behavior no recorded run exercises yet:
 
-- A `Verified:` section: no run had a check that ran, in the session or reported by the user, so every Testing list is reviewer items only.
-- A repo PR template, one or several.
+- A `Verified:` section: no run had a check that ran, in the session or reported by the user, so no Testing list holds a real `Verified:` bullet; 0004's labels one that says nothing ran.
+- A repo PR template, one or several, with an agent. `scripts/test-git-create-pr.sh` covers the lint and the report for both, and generated files left out of the diff.
 - A `[conflict]` abort, a `[stale]` base, or `[deleted]` files with an agent; `scripts/test-git-create-pr.sh` covers the report lines and the gate without one.
-- The gate stopping an agent: every current run passed the lint on its first ship. The gate's failure paths (a failed lint, a warning, a pre-push hook, `gh`) are covered only by `scripts/test-git-create-pr.sh`, and History has the last agent run a warning stopped.
+- The gate stopping an agent: every current run passed the lint on its first ship. The gate's stops, each with its own exit (a failed lint, a warning, a preflight abort, a pre-push hook, a refused push or `gh`), and the hand-back on a repeated stop are covered only by `scripts/test-git-create-pr.sh`, and History has the last agent run a warning stopped.
 - An open PR whose base differs from the one asked for.
 - A line another login added to a PR body: every edit on the fixture is the user's own login, so the history check has run only against the test suite's stub.
 - An update where the user's own browser edit holds a note a person wrote, to see whether the agent carries it over.
@@ -27,16 +27,16 @@ The README describes behavior no recorded run exercises yet:
 
 ## Method
 
-| Item | Skill arms; bare arms of 0001–0002 | Bare arms of 0003–0005 |
+| Item | Skill arms | Bare arms |
 |---|---|---|
-| Date | 2026-11-12 | 2026-11-12, an earlier batch |
+| Date | 2026-11-16 | 2026-11-12: 0001, 0002, and 0005's update in batch 3, 0003 to 0005's opening in batch 2 |
 | Model, every arm | `claude-sonnet-5-5` | `claude-sonnet-5-5` |
 | Harness | Claude Code 2.1.322 | Claude Code 2.1.322 |
-| Skill under test | this folder's parent: the ship gate, the Summary that leads with the problem, the diagram shape checks, the no-change rule for updates, and keep lines read from the body's history | none |
-| Skill hash | `6ba9a586bd8d` | n/a, bare arms load no skill |
+| Skill under test | this folder's parent: the ship gate with one exit per stop and the hand-back, every lint hit in one pass, the title in its own file, the body's last-saved count for updates, the Summary that leads with the problem, the diagram shape checks, and keep lines read from the body's history | none |
+| Skill hash | `ffadc3edb816` | n/a, bare arms load no skill |
 | User's global `CLAUDE.md` | moved aside for the runs and restored after | moved aside for the runs and restored after |
 
-A bare arm loads no skill, so a skill change leaves its run a valid comparison; the bare arms of 0003 to 0005 come from the batch History describes, and 0005's bare update ran in the current batch. The skill hash covers what the agent reads at run time, `SKILL.md`, `scripts/`, `examples/`, and `references/`. `bash scripts/check-evidence.sh` from the repo root says whether the skill has changed since; `--hash <skill-dir>` prints the value to record for a new batch.
+A bare arm loads no skill, so a skill change leaves its run a valid comparison; the bare arms come from batches 2 and 3, which History describes. The skill arms of 0001 to 0005 opened fixture PRs #20 to #24; 0006 ran on PR #8, as the batch before it did. The skill hash covers what the agent reads at run time, `SKILL.md`, `scripts/`, `examples/`, and `references/`. `bash scripts/check-evidence.sh` from the repo root says whether the skill has changed since; `--hash <skill-dir>` prints the value to record for a new batch.
 
 Every arm ran `claude -p` with `--setting-sources project`, `--permission-mode acceptEdits`, and `--allowedTools` limited to git, gh, bash, mktemp, read-only shell commands, Read, Glob, Grep, Edit. 0005's bare update also had `--add-dir /tmp`: its first try was blocked writing a body file there, a block the skill arm, writing through `mktemp`, did not meet (see 0005). The skill under test was copied into a scratch plugin and loaded with `--plugin-dir` as plugin `eval`, so it is the repo copy rather than an installed one.
 
@@ -65,6 +65,7 @@ Earlier runs on earlier states of the skill, and the rule each one changed. None
 |---|---|---|---|
 | 1 | 2026-10-08 | `44bbdcdad6de` (commit `8f85865`) | both arms of 0001 and 0002, harness 2.1.293, the user's global `CLAUDE.md` probably visible |
 | 2 | 2026-11-12 | `103bde77fffd` | the skill arms of 0003 to 0005, before the ship gate |
+| 3 | 2026-11-12 | `6ba9a586bd8d` | every skill arm, after the ship gate; the bare arms of 0001, 0002, and 0005's update |
 
 - **Bare read only the commit messages, in batch 1.** Neither bare arm of 0001 or 0002 opened the diff, and their bodies restated the commit messages. In the current batch, 0001's bare arm read the first 200 lines of the diff and wrote per-file changes much like the skill's, so the arms there now differ in how the body reads rather than in what each read (see 0001); 0002's still read only the messages. Batch 1 ran with the user's global `CLAUDE.md` probably visible, which `--setting-sources project` does not hide, so its bare arms and these differ in more than chance.
 - **Testing became evidence and work.** Batch 1's skill bodies listed Testing as unticked boxes with no labels. The split into `Verified:` and `For the reviewer:`, with a ticked box failing the lint, came after it.
@@ -72,5 +73,7 @@ Earlier runs on earlier states of the skill, and the rule each one changed. None
 - **A race needs both orders.** Batch 2's 0004 drew only the order after the fix, while the bug was the stop that landed before the loop ran. The Diagram block now says to draw both flows when the change is the difference, with a race as the case.
 - **An update needs a reason.** Batch 2's 0005 update rewrote a body that still matched its branch, changing only wording; bare saw the body was current and left it alone. Updates now change the body only for a new commit or a change the user names (0006).
 - **One gate ships the PR.** In batch 2 the agent wrote the body, ran `--lint`, then `git push`, then `gh pr create` or `gh pr edit`, carrying the body path, the title, the PR number, and the saved body between the calls; a forgotten `--existing` would have passed a body that dropped `Closes #12`. `--ship` now does all of it after one lint.
-- **The lint names one hit per kind.** In batch 2's 0003 the lint warned on a bullet opening with "Disconnecting"; the skill swapped in "Unplugging", another -ing word, and a second flagged bullet stayed hidden until the first was fixed. The lint still reports only the first hit of each kind.
+- **The lint names one hit per kind.** In batch 2's 0003 the lint warned on a bullet opening with "Disconnecting"; the skill swapped in "Unplugging", another -ing word, and a second flagged bullet stayed hidden until the first was fixed. The lint now reports every hit of each kind in one pass, in the block it shares with `git-commit`.
+- **An update decides from a count.** Batch 3's 0006 read the body against the diff to decide that nothing had changed: 5 turns and $0.109. The preflight now prints the commits since the body was last saved, and the current 0006 decided from that line alone in 2 turns, though its reply still says the body "still describes" the commit, which it did not read to check.
+- **One run per case hides how often a judgment rule holds.** Batch 3's 0002 left Impact out of a figures-only fix, and its 0004 wrote no `Verified:` label with nothing verified. The current batch's runs of the same cases did neither: 0002 wrote an Impact with nothing to weigh, and 0004 labelled a `Verified:` that holds nothing. Neither rule's wording changed between the batches.
 - **Pushes race on a shared remote.** Batch 2 pushed six arms at once: one push was rejected and retried, and another printed pack errors. Batches since run one arm at a time.
