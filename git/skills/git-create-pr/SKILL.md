@@ -7,7 +7,7 @@ allowed-tools: Bash, Read, Edit
 
 You are opening or updating a pull request: pushing the branch and writing a body a reviewer can act on.
 
-**Execution mode**: autonomous — decide the title and body and execute, no approval prompts. Stop only on a preflight ABORT, when the ship command cannot push or reach `gh`, or when an update has nothing to change (see Updates).
+**Execution mode**: autonomous — decide the title and body and execute, no approval prompts. Stop only where the ship command's stops say to hand back, or when an update has nothing to change (see Updates).
 
 **Division of labour**: you write the title and body; the script decides whether they ship. The preflight senses and never mutates. The ship command is the only path to GitHub: it runs the preflight again, lints the body, and only on a clean result pushes and creates or updates the PR, passing hook and `gh` output back to you.
 
@@ -65,7 +65,7 @@ Its shape is checked: one fenced `mermaid` block at the end of `## Summary`, a `
 
 ### Title
 
-Under 70 characters, imperative, no trailing period. The preflight reports the repo's `title style` read from its own history — match it (`conventional` means `type(scope): description`). Pass the title to the ship command in single quotes: in double quotes the shell expands a backtick or `$` in it. Write an apostrophe as `'\''`.
+70 characters at most, imperative, no trailing period. The preflight reports the repo's `title style` read from its own history — match it (`conventional` means `type(scope): description`). A new PR's title goes in a `mktemp` file of its own, written with a quoted heredoc like the body and passed with `--title-file`, so a backtick, `$`, or apostrophe in it reaches GitHub as typed.
 
 ### Provenance
 
@@ -77,11 +77,11 @@ The slice of Simplified Technical English that fits prose quoting identifiers: a
 
 ### Updates
 
-An update changes the body only for a reason: a new commit, or a change the user names. When the action is UPDATE and the preflight says no push is needed, the PR already has every commit on the branch: read the saved current body against the diff. When the body still describes every change and the user named none to make, do not ship. Tell the user which PR you left, why, and what would give it a reason to change:
+An update changes the body only for a reason: a new commit, or a change the user names. The preflight's `body:` line counts the commits on the branch since the body was last saved. One or more is a reason: read the saved current body against the diff and rewrite what the new commits changed. With none, and no change the user named, do not ship; the same holds when the line could not load the save time and the saved body still describes every change in the diff. Tell the user which PR you left, why, and what would give it a reason to change:
 
 > Left #8 unchanged: its body still describes the one commit on this branch, and no change was asked for. A new commit, or a change you name, would give it something to update.
 
-The test is whether the body is accurate, not whether it follows this skill's template, so an accurate body in another shape stays as it is. When commits reached the PR outside this skill and the body leaves them out, that is a reason to write a new one.
+The test is whether the body is accurate, not whether it follows this skill's template, so an accurate body in another shape stays as it is. Commits that reached the PR outside this skill count in the `body:` line like any other.
 
 A new body replaces the whole old one, and people add to a PR in GitHub. Carry every `keep:` line the preflight prints into the new body verbatim, where it fits; a ticked reviewer box stays ticked under `For the reviewer:`. The ship command checks the body against the PR as GitHub holds it when it ships, so a line someone adds after the preflight must survive too. The user's own edits in GitHub carry the same login this skill runs as, so no check tells them apart from an earlier version of this body: read the current body for what a person wrote by hand, such as a note to QA, a link, or a reply to a reviewer, and carry it over. Text in this skill's own shape is the old body the new one replaces.
 
@@ -109,24 +109,37 @@ cat > "$body" <<'EOF'
 EOF
 ```
 
-Each run gets its own `mktemp` file, so two sessions never share a body; use the echoed path in every later command, since shell variables do not carry between calls. Then read it back for provenance (see Provenance).
+A new PR's title goes in a file of its own the same way:
+
+```bash
+title="$(mktemp "${TMPDIR:-/tmp}/pr-title.XXXXXX")" && echo "$title"
+cat > "$title" <<'EOF'
+fix(tap): report started from inside the run loop
+EOF
+```
+
+Each run gets its own `mktemp` files, so two sessions never share a body; use the echoed paths in every later command, since shell variables do not carry between calls. Then read the body back for provenance (see Provenance).
 
 ### 4. Ship — the format rules are walls, not requests
 
-1. Run the `ship:` command the preflight printed, with the body file's path and, for a new PR, the title in single quotes; an update takes no title:
+1. Run the `ship:` command the preflight printed, with the body file's path and, for a new PR, the title file's; an update takes no title:
    ```bash
-   bash <skill-base-dir>/scripts/pr-preflight.sh --ship <body-file> '<title>' --base <base>
+   bash <skill-base-dir>/scripts/pr-preflight.sh --ship <body-file> --title-file <title-file> --base <base>
    ```
-   It lints the body, pushes when the branch needs it, then creates or updates the PR. Nothing is pushed or posted unless the lint passes. Fix a flagged line with `Edit` — rewriting the whole body costs a second copy of it — and run the ship command again:
-   - **Exit 1, NOT SHIPPED**: a preflight abort, a LINT FAIL, or a failed push or `gh` call, named in its output.
-   - **Exit 2, NOT SHIPPED: lint warned**: fix each warned line. Add `--accept-warnings` only when every warning misreads its line (a noun ending in -ing, "May" as a month).
+   It lints the body, pushes when the branch needs it, then creates or updates the PR. Nothing is pushed or posted unless the lint passes. On a stop its last line, `NOT SHIPPED: <cause> — <fix>`, names what stopped it and what to do. A fix that runs the ship command again keeps the same body file, edited in place with `Edit`, so the gate can tell when a stop repeats:
+   - **Exit 1, the gate refused or the lint failed**: fix each flagged line, or the title as the line says.
+   - **Exit 2, the lint warned**: fix each warned line. Add `--accept-warnings` only when every warning misreads its line (a noun ending in -ing, "May" as a month).
+   - **Exit 3, the preflight stopped**: its `ABORT` line names what has to change first, such as a conflict, a diverged branch, or uncommitted changes in the diff. That is the user's call: show them the line and stop.
+   - **Exit 4, the pre-push hook failed**: fix what it flags, commit the fix with the `git-commit` skill when it is installed, and ship again. Without that skill, show the user the hook's output and stop.
+   - **Exit 5, the push or `gh` failed outside any hook**: nothing in the body fixes it; ship once more in case the network dropped it.
+
+   When the line says the stop repeats the last one on this body, rewriting has stopped helping: hand back, showing the user the body and the output.
 2. Report the PR URL.
 3. When the diff changes something a person sees — UI, rendered pages, emails, CLI output — name each spot where a screenshot would help the reviewer, then stop. Screenshots are the user's choice, never a gate on opening the PR: they can attach images in GitHub themselves, or send hosted URLs for you to add under `Verified:`. To add them, run the preflight again, which now reports the open PR and its `keep:` lines, then edit the body and run the ship command it prints.
 
 ## Guardrails
 
 - Every push and every create or update goes through the ship command; `git push`, `gh pr create`, and `gh pr edit` are never run by hand. Hooks are walls, so nothing passes `--force`, `--force-with-lease`, or `--no-verify`
-- Pre-push hook failure: the ship command shows the hook's full output; fix what is auto-fixable (lint, format), commit the fix with the `git-commit` skill when it is installed, and run the ship command once more. Without that skill, or if the push fails the same way again, stop and report the hook's output
 - Merging, auto-merge, and marking ready for review stay with the user
 
 Execute this workflow now, starting with preflight.

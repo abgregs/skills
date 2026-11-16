@@ -174,17 +174,18 @@ if [ "${1:-}" = "--lint" ]; then
   BYLINE='(generated|created|authored|written|composed|produced|made|built|drafted) (with|by|using)'
   NAMED="$BYLINE[[:space:]]+([^[:space:]]+[[:space:]]+){0,3}[^[:alnum:][:space:]]*($AGENTS)([^[:alnum:]_-]|\$)"
 
-  HIT="$(grep -niE "^[[:space:]]*(co-authored-by|authored-by|assisted-by|generated-by):" "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && err "authorship trailer in the $PROV_WHAT: $HIT"
+  # Every hit is reported, not only the first, so one rewrite clears them all.
+  while IFS= read -r HIT; do err "authorship trailer in the $PROV_WHAT: $HIT"; done \
+    < <(grep -niE "^[[:space:]]*(co-authored-by|authored-by|assisted-by|generated-by):" "$PROV_FILE")
 
-  HIT="$(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "$NAMED|https?://" | head -1)"
-  [ -n "$HIT" ] && err "attribution byline in the $PROV_WHAT: $HIT"
+  while IFS= read -r HIT; do err "attribution byline in the $PROV_WHAT: $HIT"; done \
+    < <(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "$NAMED|https?://")
 
-  HIT="$(grep -niE 'claude\.ai|claude\.com/claude-code|chatgpt\.com|chat\.openai\.com|cursor\.com|copilot-workspace|githubcopilot' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && err "link to an agent or session in the $PROV_WHAT: $HIT"
+  while IFS= read -r HIT; do err "link to an agent or session in the $PROV_WHAT: $HIT"; done \
+    < <(grep -niE 'claude\.ai|claude\.com/claude-code|chatgpt\.com|chat\.openai\.com|cursor\.com|copilot-workspace|githubcopilot' "$PROV_FILE")
 
-  HIT="$(grep -n '🤖' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
+  while IFS= read -r HIT; do err "agent marker emoji in the $PROV_WHAT: $HIT"; done \
+    < <(grep -n '🤖' "$PROV_FILE")
   # --- end provenance wall ---
   # --- clarity warnings (identical block in git-create-pr/scripts/pr-preflight.sh)
   # needs from the caller: PROV_FILE, PROV_WHAT, PROV_ORIG (the unstripped file, for quoting), warn()
@@ -193,15 +194,16 @@ if [ "${1:-}" = "--lint" ]; then
   # not failures — each has a legitimate exception ("May 2026", a noun that ends
   # in -ing) that the skill's read-through can judge. Matched on the
   # code-stripped copy, reported from the original so the line reads whole.
+  # Every hit is reported, not only the first, so one rewrite clears them all.
   BULLET='[[:space:]]*- (\[[ xX]\] )?'
   orig_line() { echo "$1:$(sed -n "${1}p" "$PROV_ORIG")"; }
-  HIT="$(grep -nE "^${BULLET}[A-Za-z]+ing([^[:alnum:]]|\$)" "$PROV_FILE" \
-        | grep -viE "^[0-9]+:${BULLET}(bring|string|during|thing|nothing|something|anything|everything|ring|sing|king|wing|swing|spring)([^[:alnum:]]|\$)" | head -1)"
-  [ -n "$HIT" ] && warn "bullet opens with an -ing word — write the action or the result: $(orig_line "${HIT%%:*}")"
-  HIT="$(grep -niE '(^|[^[:alnum:]])(should|would|may|might|probably|hopefully|possibly)([^[:alnum:]]|$)' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && warn "hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"
-  HIT="$(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
+  while IFS= read -r HIT; do warn "bullet opens with an -ing word — start it with the code that acts: $(orig_line "${HIT%%:*}")"; done \
+    < <(grep -nE "^${BULLET}[A-Za-z]+ing([^[:alnum:]]|\$)" "$PROV_FILE" \
+        | grep -viE "^[0-9]+:${BULLET}(bring|string|during|thing|nothing|something|anything|everything|ring|sing|king|wing|swing|spring)([^[:alnum:]]|\$)")
+  while IFS= read -r HIT; do warn "hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"; done \
+    < <(grep -niE '(^|[^[:alnum:]])(should|would|may|might|probably|hopefully|possibly)([^[:alnum:]]|$)' "$PROV_FILE")
+  while IFS= read -r HIT; do warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"; done \
+    < <(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE")
   # --- end clarity warnings ---
   # Code as subject, for commit messages only: a PR body is prose, so this
   # stays out of the block shared with pr-preflight.sh. Every bullet but Why:

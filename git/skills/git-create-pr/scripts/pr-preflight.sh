@@ -5,19 +5,25 @@
 #                                           push state, existing PR, repo
 #                                           template, title style, diff) plus
 #                                           the action to take
-#   pr-preflight.sh --lint <body> [title] [--existing <file>] [--keep <file>] [--accept-warnings]
+#   pr-preflight.sh --lint <body> [--title-file <file>] [--existing <file>] [--keep <file>] [--accept-warnings]
 #                                           lint a PR body written to a file,
-#                                           and the title if given; --existing
-#                                           is the current body of the PR being
-#                                           updated, whose kept lines must
-#                                           survive, and --keep lists more lines
-#                                           that must; exit 0 = OK,
+#                                           and the title in its file if given;
+#                                           --existing is the current body of
+#                                           the PR being updated, whose kept
+#                                           lines must survive, and --keep lists
+#                                           more lines that must; exit 0 = OK,
 #                                           1 = violations, 2 = warnings only
-#   pr-preflight.sh --ship <body> [title] [--base <branch>] [--accept-warnings]
+#   pr-preflight.sh --ship <body> [--title-file <file>] [--base <branch>] [--accept-warnings]
 #                                           the only path to GitHub: preflight
 #                                           again, lint, then push and create or
-#                                           update; exit 0 = shipped, 1 = not
-#                                           shipped, 2 = lint warnings only
+#                                           update; exit 0 = shipped; on a stop,
+#                                           a NOT SHIPPED line and 1 = the gate
+#                                           refused or the lint failed, 2 = the
+#                                           lint warned, 3 = the preflight
+#                                           stopped, 4 = the pre-push hook
+#                                           failed, 5 = the push or gh failed;
+#                                           a stop that repeats the last one
+#                                           says to hand back
 #
 # Only --ship mutates, and only after the lint passes; the other modes never
 # touch the working tree, the index, or any local branch. Hook and gh output
@@ -170,6 +176,34 @@ other_people_lines() { # <pr-url> <pr-number> <current-body-file>
   rm -r "$dir"
 }
 
+# When the PR body was last saved, as GitHub records it: the last edit, or the
+# PR's opening when nobody has edited it. Empty when the query fails.
+body_saved_at() { # <pr-url> <pr-number>
+  local slug
+  slug="$(printf '%s' "$1" | sed -nE 's#^https?://[^/]+/([^/]+)/([^/]+)/pull/[0-9]+.*#\1/\2#p')"
+  [ -n "$slug" ] || return 0
+  gh api graphql -f owner="${slug%%/*}" -f name="${slug#*/}" -F number="$2" \
+    -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){createdAt lastEditedAt}}}' \
+    --jq '.data.repository.pullRequest | (.lastEditedAt // .createdAt)' 2>/dev/null \
+    | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}T' | head -1
+}
+
+# The hook that made a git command fail, read from its GIT_TRACE2_PERF file: the
+# top-level process's (depth d0) child of class hook whose exit code is not 0.
+# Git commands a hook runs itself trace at depth d1 and are left out. Empty when
+# no hook failed, or when git is too old for trace2.
+failed_hook() { # <trace-file>
+  awk -F'|' '
+    $2 ~ /^ *d0 *$/ && $4 ~ /child_start/ && match($NF, /\[ch[0-9]+\] class:hook hook:[A-Za-z_-]+/) {
+      s = substr($NF, RSTART, RLENGTH); id = s; sub(/^\[ch/, "", id); sub(/\].*/, "", id)
+      name = s; sub(/.*hook:/, "", name); hook[id] = name }
+    $2 ~ /^ *d0 *$/ && $4 ~ /child_exit/ && match($NF, /\[ch[0-9]+\] pid:-?[0-9]+ code:-?[0-9]+/) {
+      s = substr($NF, RSTART, RLENGTH); id = s; sub(/^\[ch/, "", id); sub(/\].*/, "", id)
+      code = s; sub(/.*code:/, "", code)
+      if ((id in hook) && code != 0) failed = hook[id] }
+    END { print failed }' "$1" 2>/dev/null
+}
+
 # Title style is read off this repo's history, never assumed. One log call.
 # Merge commits are skipped: their subjects are written by the forge, not the
 # repo's convention.
@@ -184,26 +218,41 @@ title_style() {
   fi
 }
 
+# The title crosses as a file, like the body, so no shell quoting stands between
+# what the agent wrote and what GitHub gets: a backtick, a `$`, or an apostrophe
+# arrives as typed. One non-blank line, trailing whitespace dropped.
+TITLE_HINT="       a title goes in its own file, passed with --title-file, so the shell never touches it"
+read_title() { grep -v '^[[:space:]]*$' "$1" | sed -E 's/[[:space:]]+$//'; }
+
 if [ "${1:-}" = "--lint" ]; then
-  USAGE="usage: pr-preflight.sh --lint <body-file> [title] [--existing <current-body-file>] [--keep <lines-file>] [--accept-warnings]"
+  USAGE="usage: pr-preflight.sh --lint <body-file> [--title-file <file>] [--existing <current-body-file>] [--keep <lines-file>] [--accept-warnings]"
   [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }
   BODY="$(abspath "$2")"; shift 2
-  TITLE=""; EXIST=""; KEEPX=""; ACCEPT=0
+  TITLEF=""; EXIST=""; KEEPX=""; ACCEPT=0
   while [ $# -gt 0 ]; do
     case "$1" in
+      --title-file) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; TITLEF="$(abspath "$2")"; shift 2 ;;
       --existing) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; EXIST="$(abspath "$2")"; shift 2 ;;
       --keep) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; KEEPX="$(abspath "$2")"; shift 2 ;;
       --accept-warnings) ACCEPT=1; shift ;;
-      *) [ -z "$TITLE" ] || { echo "$USAGE"; exit 1; }; TITLE="$1"; shift ;;
+      *) echo "$USAGE"; echo "$TITLE_HINT"; exit 1 ;;
     esac
   done
   [ -f "$BODY" ] || { echo "lint: no such file: $BODY"; exit 1; }
   [ -s "$BODY" ] || { echo "LINT FAIL: body is empty"; exit 1; }
   [ -z "$EXIST" ] || [ -f "$EXIST" ] || { echo "lint: no such file: $EXIST"; exit 1; }
   [ -z "$KEEPX" ] || [ -f "$KEEPX" ] || { echo "lint: no such file: $KEEPX"; exit 1; }
+  [ -z "$TITLEF" ] || [ -f "$TITLEF" ] || { echo "lint: no such file: $TITLEF"; exit 1; }
   FAIL=0; WARNED=0
   err() { echo "LINT FAIL: $1"; FAIL=1; }
   warn() { echo "LINT WARN: $1"; WARNED=1; }
+  TITLE=""
+  if [ -n "$TITLEF" ]; then
+    TITLE="$(read_title "$TITLEF")"
+    TN="$(printf '%s' "$TITLE" | grep -c .)"
+    if [ "$TN" = 0 ]; then err "the title file is empty — write the title on its one line"
+    elif [ "$TN" -gt 1 ]; then err "the title file holds $TN lines — a title is one line"; TITLE=""; fi
+  fi
 
   # An update keeps what people added to the PR in GitHub: the kept shapes in
   # the current body (--existing), and the lines other people typed (--keep,
@@ -290,25 +339,26 @@ if [ "${1:-}" = "--lint" ]; then
     ITEMS="$(printf '%s\n' "$TESTING" | grep -c '^[[:space:]]*- ')"
     [ "$ITEMS" -ge 2 ] \
       || err "Testing needs 2+ items, each naming a real path or behavior from the diff"
-    HIT="$(printf '%s\n' "$TESTING" | grep '^[[:space:]]*- \[[xX]\] ' \
+    while IFS= read -r HIT; do
+      err "ticked box in Testing — write it under 'Verified:' as a plain bullet with its result: $HIT"
+    done < <(printf '%s\n' "$TESTING" | grep '^[[:space:]]*- \[[xX]\] ' \
           | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
-          | { if [ -s "$KEEPF" ]; then grep -vxF -f "$KEEPF"; else cat; fi; } | head -1)"
-    [ -n "$HIT" ] \
-      && err "ticked box in Testing — write it under 'Verified:' as a plain bullet with its result: $HIT"
+          | { if [ -s "$KEEPF" ]; then grep -vxF -f "$KEEPF"; else cat; fi; })
   fi
 
   # An unfilled placeholder is bracketed text containing a space that is not a
   # markdown link, a reference link or definition, or a checkbox — so
   # `[Key change 1]` fails while `[the docs](url)`, `[spec][ref]`,
   # `[my ref]: url` and `[1]` pass. Only the checkbox marker is stripped (in any
-  # list style), so a placeholder written after one is still caught.
-  PLACE="$(printf '%s\n' "$PROSE" \
-           | sed -E 's/^([[:space:]]*([-*+]|[0-9]+[.)])[[:space:]]+)\[[ xX]\]/\1/' \
-           | grep -nE '\[[^]]*[[:space:]][^]]*\]([^([]|$)' \
-           | grep -vE '^[0-9]+:[[:space:]]{0,3}\[[^]]+\]:' | head -1)"
-  [ -n "$PLACE" ] && err "unfilled placeholder: $PLACE"
-  printf '%s\n' "$PROSE" | grep -qiE 'key change [0-9]|verification criterion|high-level overview|brief description of|detail [0-9]' \
-    && err "template boilerplate left in the body — write the real content"
+  # list style), so a placeholder written after one is still caught. Every hit
+  # is reported, so one rewrite clears them all.
+  while IFS= read -r HIT; do err "unfilled placeholder: $HIT"; done \
+    < <(printf '%s\n' "$PROSE" \
+        | sed -E 's/^([[:space:]]*([-*+]|[0-9]+[.)])[[:space:]]+)\[[ xX]\]/\1/' \
+        | grep -nE '\[[^]]*[[:space:]][^]]*\]([^([]|$)' \
+        | grep -vE '^[0-9]+:[[:space:]]{0,3}\[[^]]+\]:')
+  while IFS= read -r HIT; do err "template boilerplate left in the body — write the real content: $HIT"; done \
+    < <(printf '%s\n' "$PROSE" | grep -niE 'key change [0-9]|verification criterion|high-level overview|brief description of|detail [0-9]')
 
   # Provenance greps run on the code-stripped prose, so a body that
   # legitimately QUOTES an attribution string in backticks (e.g. a PR about
@@ -342,17 +392,18 @@ if [ "${1:-}" = "--lint" ]; then
   BYLINE='(generated|created|authored|written|composed|produced|made|built|drafted) (with|by|using)'
   NAMED="$BYLINE[[:space:]]+([^[:space:]]+[[:space:]]+){0,3}[^[:alnum:][:space:]]*($AGENTS)([^[:alnum:]_-]|\$)"
 
-  HIT="$(grep -niE "^[[:space:]]*(co-authored-by|authored-by|assisted-by|generated-by):" "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && err "authorship trailer in the $PROV_WHAT: $HIT"
+  # Every hit is reported, not only the first, so one rewrite clears them all.
+  while IFS= read -r HIT; do err "authorship trailer in the $PROV_WHAT: $HIT"; done \
+    < <(grep -niE "^[[:space:]]*(co-authored-by|authored-by|assisted-by|generated-by):" "$PROV_FILE")
 
-  HIT="$(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "$NAMED|https?://" | head -1)"
-  [ -n "$HIT" ] && err "attribution byline in the $PROV_WHAT: $HIT"
+  while IFS= read -r HIT; do err "attribution byline in the $PROV_WHAT: $HIT"; done \
+    < <(grep -niE -- "$BYLINE" "$PROV_FILE" | grep -iE -- "$NAMED|https?://")
 
-  HIT="$(grep -niE 'claude\.ai|claude\.com/claude-code|chatgpt\.com|chat\.openai\.com|cursor\.com|copilot-workspace|githubcopilot' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && err "link to an agent or session in the $PROV_WHAT: $HIT"
+  while IFS= read -r HIT; do err "link to an agent or session in the $PROV_WHAT: $HIT"; done \
+    < <(grep -niE 'claude\.ai|claude\.com/claude-code|chatgpt\.com|chat\.openai\.com|cursor\.com|copilot-workspace|githubcopilot' "$PROV_FILE")
 
-  HIT="$(grep -n '🤖' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && err "agent marker emoji in the $PROV_WHAT: $HIT"
+  while IFS= read -r HIT; do err "agent marker emoji in the $PROV_WHAT: $HIT"; done \
+    < <(grep -n '🤖' "$PROV_FILE")
   # --- end provenance wall ---
   # --- clarity warnings (identical block in git-commit/scripts/commit-preflight.sh)
   # needs from the caller: PROV_FILE, PROV_WHAT, PROV_ORIG (the unstripped file, for quoting), warn()
@@ -361,15 +412,16 @@ if [ "${1:-}" = "--lint" ]; then
   # not failures — each has a legitimate exception ("May 2026", a noun that ends
   # in -ing) that the skill's read-through can judge. Matched on the
   # code-stripped copy, reported from the original so the line reads whole.
+  # Every hit is reported, not only the first, so one rewrite clears them all.
   BULLET='[[:space:]]*- (\[[ xX]\] )?'
   orig_line() { echo "$1:$(sed -n "${1}p" "$PROV_ORIG")"; }
-  HIT="$(grep -nE "^${BULLET}[A-Za-z]+ing([^[:alnum:]]|\$)" "$PROV_FILE" \
-        | grep -viE "^[0-9]+:${BULLET}(bring|string|during|thing|nothing|something|anything|everything|ring|sing|king|wing|swing|spring)([^[:alnum:]]|\$)" | head -1)"
-  [ -n "$HIT" ] && warn "bullet opens with an -ing word — write the action or the result: $(orig_line "${HIT%%:*}")"
-  HIT="$(grep -niE '(^|[^[:alnum:]])(should|would|may|might|probably|hopefully|possibly)([^[:alnum:]]|$)' "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && warn "hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"
-  HIT="$(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE" | head -1)"
-  [ -n "$HIT" ] && warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
+  while IFS= read -r HIT; do warn "bullet opens with an -ing word — start it with the code that acts: $(orig_line "${HIT%%:*}")"; done \
+    < <(grep -nE "^${BULLET}[A-Za-z]+ing([^[:alnum:]]|\$)" "$PROV_FILE" \
+        | grep -viE "^[0-9]+:${BULLET}(bring|string|during|thing|nothing|something|anything|everything|ring|sing|king|wing|swing|spring)([^[:alnum:]]|\$)")
+  while IFS= read -r HIT; do warn "hedge word in the $PROV_WHAT — state what the code does, or name the risk outright: $(orig_line "${HIT%%:*}")"; done \
+    < <(grep -niE '(^|[^[:alnum:]])(should|would|may|might|probably|hopefully|possibly)([^[:alnum:]]|$)' "$PROV_FILE")
+  while IFS= read -r HIT; do warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"; done \
+    < <(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE")
   # --- end clarity warnings ---
   rm -f "$PROV_STRIP" "$KEEPF"
 
@@ -452,28 +504,51 @@ fi
 # hands its facts over in a state file rather than through the model, so the
 # base, the push, the PR number and the saved body cannot be miscopied.
 if [ "${1:-}" = "--ship" ]; then
-  USAGE="usage: pr-preflight.sh --ship <body-file> [title] [--base <branch>] [--accept-warnings]"
+  USAGE="usage: pr-preflight.sh --ship <body-file> [--title-file <file>] [--base <branch>] [--accept-warnings]"
   [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }
   BODY="$(abspath "$2")"; shift 2
-  TITLE=""; BASE_ARG=""; ACCEPT=""
+  TITLEF=""; BASE_ARG=""; ACCEPT=""
   while [ $# -gt 0 ]; do
     case "$1" in
+      --title-file) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; TITLEF="$(abspath "$2")"; shift 2 ;;
       --base) [ -n "${2:-}" ] || { echo "$USAGE"; exit 1; }; BASE_ARG="$2"; shift 2 ;;
       --accept-warnings) ACCEPT="--accept-warnings"; shift ;;
-      *) [ -z "$TITLE" ] || { echo "$USAGE"; exit 1; }; TITLE="$1"; shift ;;
+      *) echo "$USAGE"; echo "$TITLE_HINT"; exit 1 ;;
     esac
   done
   [ -f "$BODY" ] || { echo "NOT SHIPPED: no such file: $BODY"; exit 1; }
 
+  # Every stop prints one NOT SHIPPED line, its cause and then what to do, and
+  # exits with the code for its cause: 1 the gate refused the call or the lint
+  # failed, 2 the lint warned, 3 the preflight stopped, 4 the pre-push hook
+  # failed, 5 the push or gh failed outside any hook. A stop that repeats the
+  # last one on this body file made no progress, so its fix becomes a hand-back
+  # to the user instead of another loop. The record sits beside the body file
+  # and goes once the body ships.
+  STOPF="$BODY.stop"; S_EXIST=""; S_KEEP=""
+  stop() { # <exit> <cause> <fix> [<what makes two stops the same; default the cause>]
+    local same="${4:-$2}"
+    if [ -f "$STOPF" ] && [ "$(cat "$STOPF")" = "$same" ]; then
+      echo "NOT SHIPPED: $2 — the same stop as the last run on this body: hand back, showing the user $BODY and the output above"
+    else
+      echo "NOT SHIPPED: $2 — $3"
+    fi
+    printf '%s' "$same" > "$STOPF" 2>/dev/null
+    rm -f "$S_EXIST" "$S_KEEP"
+    exit "$1"
+  }
+
   STATE="$(mktemp)"
   OUT="$(PR_SHIP_STATE="$STATE" bash "$SELF" ${BASE_ARG:+"$BASE_ARG"} 2>&1)"; RC=$?
   if [ "$RC" != 0 ]; then
-    printf '%s\n' "$OUT" | sed -n '/^ABORT/,$p'
-    echo "NOT SHIPPED: the preflight stopped — nothing was pushed or posted"
-    rm -f "$STATE"; exit 1
+    ABORT="$(printf '%s\n' "$OUT" | sed -n '/^ABORT/,$p')"
+    printf '%s\n' "$ABORT"
+    rm -f "$STATE"
+    stop 3 "the preflight stopped, so nothing was pushed or posted" \
+      "the ABORT line above names what has to change first; show it to the user" "$ABORT"
   fi
   printf '%s\n' "$OUT" | grep '^WARN'
-  S_BASE=""; S_PUSH=""; S_PR=""; S_EXIST=""; S_KEEP=""
+  S_BASE=""; S_PUSH=""; S_PR=""
   while IFS=$'\t' read -r K V; do
     case "$K" in
       BASE) S_BASE="$V" ;;
@@ -484,34 +559,44 @@ if [ "${1:-}" = "--ship" ]; then
     esac
   done < "$STATE"
   rm -f "$STATE"
-  [ -n "$S_BASE" ] || { echo "NOT SHIPPED: the preflight reported no base"; exit 1; }
-  done_ship() { rm -f "$S_EXIST" "$S_KEEP"; exit "$1"; }
+  [ -n "$S_BASE" ] || stop 3 "the preflight reported no base" "show the user the preflight output"
 
   # A new PR needs a title; an update leaves the title as it is.
   if [ -n "$S_PR" ]; then
-    [ -z "$TITLE" ] || { echo "NOT SHIPPED: #$S_PR is open, and an update leaves its title as it is — run --ship without the title"; done_ship 1; }
+    [ -z "$TITLEF" ] || stop 1 "#$S_PR is open, and an update leaves its title as it is" "run --ship without --title-file"
   else
-    [ -n "$TITLE" ] || { echo "NOT SHIPPED: a new PR needs a title — pass it after the body file, in single quotes"; done_ship 1; }
+    [ -n "$TITLEF" ] || stop 1 "a new PR needs a title" "write it to its own mktemp file and pass --title-file <file>"
   fi
 
   LARGS=(--lint "$BODY")
-  [ -n "$TITLE" ] && LARGS+=("$TITLE")
+  [ -n "$TITLEF" ] && LARGS+=(--title-file "$TITLEF")
   [ -n "$S_EXIST" ] && LARGS+=(--existing "$S_EXIST")
   [ -n "$S_KEEP" ] && LARGS+=(--keep "$S_KEEP")
   [ -n "$ACCEPT" ] && LARGS+=("$ACCEPT")
-  bash "$SELF" "${LARGS[@]}"; RC=$?
+  LOUT="$(bash "$SELF" "${LARGS[@]}")"; RC=$?
+  printf '%s\n' "$LOUT"
   case "$RC" in
     0) ;;
-    2) echo "NOT SHIPPED: lint warned — fix each warned line in $BODY and run --ship again"; done_ship 2 ;;
-    *) echo "NOT SHIPPED: lint failed — fix the flagged lines in $BODY and run --ship again"; done_ship 1 ;;
+    2) stop 2 "lint warned" "fix each warned line in $BODY and run --ship again; add --accept-warnings only when every warning misreads its line" "$LOUT" ;;
+    *) stop 1 "lint failed" "fix the flagged lines in $BODY and run --ship again" "$LOUT" ;;
   esac
+  TITLE=""; [ -z "$TITLEF" ] || TITLE="$(read_title "$TITLEF")"
 
   if [ -n "$S_PUSH" ]; then
     echo "push: $S_PUSH"
     # Split on purpose: the preflight built it from a remote and a branch name,
-    # and neither can hold a space.
-    $S_PUSH 2>&1; RC=$?
-    [ "$RC" = 0 ] || { echo "NOT SHIPPED: push failed — a pre-push hook's output, if one ran, is above"; done_ship 1; }
+    # and neither can hold a space. trace2 records which hook failed, if one did.
+    T2="$(mktemp "${TMPDIR:-/tmp}/pr-trace.XXXXXX")"
+    ( export GIT_TRACE2_PERF="$T2"; $S_PUSH ) 2>&1; RC=$?
+    HOOK="$(failed_hook "$T2")"; rm -f "$T2"
+    if [ "$RC" != 0 ]; then
+      if [ "$HOOK" = pre-push ]; then
+        stop 4 "the pre-push hook failed, output above" "fix what it flags, commit the fix, and run --ship again"
+      else
+        stop 5 "the push failed${HOOK:+ in the $HOOK hook}, output above" \
+          "nothing in the body fixes this: run --ship once more in case the network dropped it"
+      fi
+    fi
   fi
 
   if [ -n "$S_PR" ]; then
@@ -521,12 +606,11 @@ if [ "${1:-}" = "--ship" ]; then
     gh pr create --base "$S_BASE" --title "$TITLE" --body-file "$BODY" 2>&1; RC=$?
     WHAT="opened a PR against $S_BASE"
   fi
-  if [ "$RC" != 0 ]; then
-    echo "NOT SHIPPED: gh failed${S_PUSH:+ after the push went through} — its output is above"
-    done_ship 1
-  fi
+  [ "$RC" = 0 ] || stop 5 "gh failed${S_PUSH:+ after the push went through}, output above" \
+    "run --ship once more, which skips what already went through"
+  rm -f "$STOPF" "$S_EXIST" "$S_KEEP"
   echo "SHIPPED: $WHAT"
-  done_ship 0
+  exit 0
 fi
 
 # ---- preflight report
@@ -702,6 +786,20 @@ if [ -n "$PR" ]; then
   else
     echo "keep:  none"
   fi
+  # Whether an update has a reason to rewrite the body: the commits on this
+  # branch dated after the body was last saved, pushed or not. Commit dates, so
+  # a rebase counts its commits as new, which a rewrite then checks.
+  SAVED="$(body_saved_at "$PR_URL" "$PR_NUM")"
+  if [ -n "$SAVED" ]; then
+    SINCE="$(git rev-list --count --since="$SAVED" "$MB..HEAD" 2>/dev/null)"
+    if [ "${SINCE:-0}" -gt 0 ]; then
+      echo "body:  last saved $SAVED; $SINCE commit(s) on this branch since — a reason to rewrite it"
+    else
+      echo "body:  last saved $SAVED; no commit since — rewrite it only for a change the user names (see Updates)"
+    fi
+  else
+    echo "body:  when it was last saved did not load — judge from the body and the commits (see Updates)"
+  fi
   ACTION="UPDATE the body of #$PR_NUM"
 else
   echo "pr:    none open for this branch"
@@ -862,7 +960,7 @@ fi
 echo "diff: git diff $MB HEAD$EXCLUDES"
 echo
 echo "action: ${PUSH:+push, then }$ACTION"
-if [ -n "$PR" ]; then SHIP_TITLE=""; else SHIP_TITLE=" '<title>'"; fi
+if [ -n "$PR" ]; then SHIP_TITLE=""; else SHIP_TITLE=" --title-file <title-file>"; fi
 echo "ship:   bash $(shq "$SELF") --ship <body-file>$SHIP_TITLE --base $(shq "$BASE")"
 # --ship reads its facts here instead of trusting the model to copy them.
 if [ -n "${PR_SHIP_STATE:-}" ]; then
