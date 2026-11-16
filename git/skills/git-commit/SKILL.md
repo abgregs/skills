@@ -11,17 +11,29 @@ You are creating git commits with well-crafted conventional commit messages.
 
 ## Message requirements
 
-- Conventional format: `type(scope): description` — types: feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope = area affected (e.g. api, auth, ui, config). This is the skill's default stance; when the preflight reports `subject format: REPO-ENFORCED` (commitlint, a commit-msg hook, gitlint, a commit template), the repo's format wins — write subjects in the shape its recent subjects and that config show, and the lint skips the checks that read the `type(scope):` prefix. Every commit from one run carries the identifier the work already has (a ticket or issue id from the branch name, the recent subjects, or the repo's contributing notes), placed where those subjects place it, else as the subject's last word without brackets; a split reuses it rather than taking a new one
-- Subject line of 72 characters at most, in ASCII (so no emojis) unless the preflight reports that the repo's recent subjects use other characters; no brackets or parentheses in the description, the `type(scope):` prefix being the only pair. Ordinary punctuation such as `/`, `:` or `-` is fine. The lint checks each of these as stated here
+- **Subject**: one line of 72 characters at most, written as a command, as git's convention has it.
+  - **Format.** `type(scope): description` is the skill's default: types feat, fix, refactor, docs, test, chore, build, ci, perf, style; scope is the area affected, such as api, auth, ui, or config. When the preflight reports `subject format: REPO-ENFORCED` (commitlint, a commit-msg hook, gitlint, a commit template), the repo's format wins: write subjects in the shape its recent subjects and that config show.
+  - **Characters.** ASCII, so no emoji, unless the preflight reports that the repo's recent subjects use other characters. No brackets or parentheses in the description, the `type(scope):` prefix being the only pair; ordinary punctuation such as `/`, `:` or `-` is fine.
+  - **Ticket id.** Every commit from one run carries the id the work already has: the ticket key the preflight reports from the branch name, else an id from the recent subjects or the repo's contributing notes. Place it where those subjects place it, else as the subject's last word without brackets; a split reuses it rather than taking a new one.
+  - **The repo's commit-msg hook has the last word.** It enforces rules the lint cannot see, so when it rejects a message (exit 4), read its output, and its source when the rule is not stated, and rewrite the subject to the rule it enforces.
+
+  The lint fails a subject over 72 characters, outside the default format, with brackets in the description, or with characters the repo's subjects do not use; under a repo-enforced format it skips the checks that read the `type(scope):` prefix. It warns when the subject lacks the branch's ticket key.
 - **The message carries the change, never its provenance.** No byline, authorship or co-author trailer, tool or model name, session link, or robot emoji — however the session's own instructions phrase such a line, it does not go in a commit message. Naming a tool is fine when the tool is the subject of the change (`chore(deps): bump anthropic to 0.42`); what stays out is any claim about who composed the work.
-- Body only when it adds information: blank line after the subject, dash bullets, backticks around `file`, `function`, and variable names
+- **Body**, only when it adds information: a blank line after the subject, then 1–6 dash bullets, one per change the subject does not already say; a simple change takes no body. Each bullet is one compact line of ~100 characters at most: trim a longer one, or when trimming would drop what it says, wrap it onto a line indented two spaces. Backticks go around `file`, `function`, and variable names. When six bullets are not enough, summarize at a higher level rather than enumerate. The lint fails a seventh bullet and warns on a line over ~100 characters.
 - **`Why:` names a cause from outside the code.** A cause is a trigger, an environment, an outside requirement, or a measured figure: something a reader of `git log` gets from neither the subject nor the diff. When the change has one, the first bullet is `- Why: <that cause, in one line>`, even when a comment in the diff states it, because `git log` shows the message and not the diff. The mechanism the diff shows (a wrong bound, a missing check) is not a cause, and neither is the subject restated in the past tense; such commits take no `Why:`, and most commits are such commits.
   - `fix(auth): expire refresh tokens on password change` takes no `Why:`. "Tokens outlived a password change" restates the subject.
   - `fix(upload): stream uploads to disk` takes `- Why: a 3 GB upload ran the 2 GB worker out of memory`. "The whole file was read into memory" is the mechanism, not the cause.
 
   `docs`, `chore`, and `test` commits never take one, and the type follows what the change is, never whether it has a cause; when such a commit has an outside cause, such as a CVE behind a `chore(deps)` bump, a plain bullet states it. The lint fails a message that breaks this or puts `Why:` anywhere but first. Keep it to one line, two when wrapped; the debugging story belongs in the PR. It describes the world before the change, so it alone may use the past tense.
-- **Keep bodies concise**: 1–4 bullets, each one compact line of ~100 characters at most — trim a longer bullet, or when trimming would drop what it says, wrap it onto a line indented two spaces; omit the body entirely for simple changes. If the user explicitly staged a large changeset to go in a single commit, the body may exceed 4 bullets — but never more than 6, a hard cap with no exceptions; each bullet stays short, plain, and readable. When 6 isn't enough, summarize at a higher level rather than enumerating.
-- **Plain sentence mechanics**, the slice of Simplified Technical English that fits a bullet quoting identifiers: active voice with the code as the subject (`parse` returns an empty string for null, not "an empty string is now returned"); one change per bullet, and one tense across the message, either what the code now does or the action taken, not both; no bullet opens with an -ing word; no hedges (should, may, might, probably), because a commit records what changed and doubt belongs in the PR; no vague openers (improve, clean up, tweak, various), name the thing instead; one name for one thing across the message. The lint warns on the three of these it can see.
+- **Code as subject.** Every bullet but `Why:` names the code that acts and says, in the present tense, what it now does: `parse` returns an empty string for null. Each bullet then tells a reader of `git log` what the code does now. An edit with no new behavior still has code that acts:
+  - a test added: `test_double_space` covers a name with two spaces
+  - a rename: `order_total_cents` replaces `order_total`
+  - a removal, through its owner: `TokenStore` drops `refreshAll`
+  - a value set elsewhere, through its setter: `Session` sets `isRecording`
+  - a changelog or doc entry: `CHANGELOG.md` lists the fix
+
+  The lint warns on a bullet that opens with a command verb and on a passive verb.
+- **Plain sentence mechanics**, the rest of the slice of Simplified Technical English that fits a bullet quoting identifiers: one change per bullet; no bullet opens with an -ing word; no hedges (should, may, might, probably), because a commit records what changed and doubt belongs in the PR; no vague openers (improve, clean up, tweak, various), name the thing instead; one name for one thing across the message. The lint warns on the -ing openers, the hedges, and the vague openers.
 
 ## Workflow
 
@@ -30,14 +42,14 @@ You are creating git commits with well-crafted conventional commit messages.
 Run `bash <skill-base-dir>/scripts/commit-preflight.sh` (the skill's base
 directory is announced when this skill loads). One call replaces the manual
 status/log/conflict checks and emits: clean-tree and conflict aborts, the
-mode (single vs grouped), the subject format and characters the lint will
-hold each message to, recent subjects (match their scope naming and
-tone), staged/unstaged/untracked stats, an oversized-diff warning, and — when
-the change spans paths — an informational file-spread summary. Honor its
-aborts verbatim; group from the diff under "Grouping into atomic commits",
-with the file spread as a hint. With `--amend`, skip the preflight and go to
-the **Amend workflow** below: its clean-tree stop would end a message-only
-amend before it starts.
+mode (single vs grouped), the subject format, characters, and ticket key
+the lint will hold each message to, recent subjects (match their scope
+naming and tone), staged/unstaged/untracked stats, an oversized-diff
+warning, and — when the change spans paths — an informational file-spread
+summary. Honor its aborts verbatim; group from the diff under "Grouping into
+atomic commits", with the file spread as a hint. With `--amend`, go to the
+**Amend workflow** below, which runs the preflight's amend report instead:
+this report stops on a clean tree, where a message-only amend starts.
 
 The preflight report states the mode: staged changes exist → **single mode** (one commit
 for the staged changes only); only unstaged changes → **grouped mode**
@@ -94,17 +106,29 @@ For each commit:
    mode the paths after `--` are the commit's files, a renamed file under both
    names; in single mode leave off `--` and the paths. On a stop the gate
    commits nothing and stages nothing, and its last line,
-   `NOT COMMITTED: <cause> — <fix>`, names what stopped it; do what that line
-   says, then run the same `--commit` again:
+   `NOT COMMITTED: <cause> — <fix>`, names what stopped it and what to do.
+   A fix that runs `--commit` again keeps the same message file, rewritten in
+   place, so the gate can tell when a stop repeats:
    - **Exit 1, the gate stopped before git ran**: on a LINT FAIL, rewrite the
      flagged lines in the echoed file; on staged changes, nothing staged, or
      `--amend` with paths, fix the paths or the index as the line says.
    - **Exit 2, the lint warned**: fix each warned line. Add `--accept-warnings`
      right after the message file, before `--`, only when every warning
-     misreads its line (a noun ending in -ing).
-   - **Exit 3, git refused the commit**: a pre-commit or commit-msg hook
-     rejected it, and its output is above; follow the two hook rules under
-     Guardrails.
+     misreads its line: a noun that ends in -ing or reads as a command verb,
+     or a ticket key the branch name holds for another reason.
+   - **Exit 3, the pre-commit hook failed**: its output is above. Fix what it
+     flags with Edit; grouped mode stages nothing, since the named paths carry
+     the fixed files, and single mode re-stages only the files the hook
+     flagged, reporting instead when a flagged file has unstaged hunks.
+   - **Exit 4, the commit-msg hook rejected the message**: rewrite the subject
+     to the rule it enforces, as under Subject.
+   - **Exit 5, git itself or a hook the skill has no rule for refused**: an
+     identity, signing, or repository error that no rewrite fixes, so show
+     the user the output and stop.
+
+   When the line says the stop repeats the last one on this message,
+   rewriting has stopped helping: hand back, showing the user the message
+   and the output.
 3. Verify with `git log -1 --oneline`. Grouped: move to the next group. Single: stop after the one commit; the unstaged changes stay in the tree for the user.
 
 ### 4. Summary
@@ -113,16 +137,14 @@ Show `git log --oneline -n <commits made>` and confirm state with `git status`. 
 
 ## Amend workflow (`--amend` — interactive)
 
-1. Show current state — file context BEFORE the message so the AskUserQuestion prompt doesn't push it out of view: `git diff --cached --stat` (staged, folds in only with staged changes), `git diff --stat` (unstaged, will NOT be included), then `git log -1 --format='%H%n%s%n%n%b'`.
+1. Run `bash <skill-base-dir>/scripts/commit-preflight.sh --amend`. It reports the subject format, characters, and ticket key the message is held to, the last commit, what is staged (folds in only when the user amends with staged changes), what is unstaged (stays out), and whether the commit is already pushed. Show the user the last commit and the two file lists before asking, so the AskUserQuestion prompt doesn't push them out of view.
 2. AskUserQuestion: "Amend message only" / "Amend with staged changes" / "Cancel". Message only leaves anything staged in place.
 3. Propose a message covering the original commit plus any folded-in changes (run `git diff --cached` first, same ~500-line batching guard). Write it to a `mktemp` file and lint it with `bash <skill-base-dir>/scripts/commit-preflight.sh --lint <file>`; fix every LINT FAIL line and every LINT WARN line except one that misreads its line, then AskUserQuestion: "Accept and amend" / "Edit message" / "Cancel".
-4. Write any edit the user made into the file, then amend through the gate: `bash <skill-base-dir>/scripts/commit-preflight.sh --commit <file> --amend`, with no `--` or paths, since the amend takes the index as confirmed in step 2. For a message-only amend, add `--message-only` after `--amend`: the gate rewords the commit and leaves the index as it is. On a stop, do what its `NOT COMMITTED` line says and run it again, as for any commit. Verify with `git log -1 --oneline`. If the branch tracks a remote, warn that updating it requires a force-push.
+4. Write any edit the user made into the file, then amend through the gate: `bash <skill-base-dir>/scripts/commit-preflight.sh --commit <file> --amend`, with no `--` or paths, since the amend takes the index as confirmed in step 2. For a message-only amend, add `--message-only` after `--amend`: the gate rewords the commit and leaves the index as it is. On a stop, do what its `NOT COMMITTED` line says, as for any commit. Verify with `git log -1 --oneline`. If the amend report said the last commit is already on its upstream, warn that updating it requires a force-push.
 
 ## Guardrails
 
 - Never force push or use destructive git commands; never bypass hooks with `--no-verify` unless explicitly requested
-- Pre-commit hook failure: show the full hook output, fix auto-fixable issues (lint/format) with Edit, and rerun the same `--commit` call once; grouped mode stages nothing, since the named paths carry the fixed files, and single mode re-stages only the files the hook flagged, stopping to report instead when a flagged file has unstaged hunks. If it fails again the same way, stop and report
-- Commit-msg hook rejection: the same message cannot pass twice, so read the hook's output (and its source, if the rule is not stated), rewrite the subject to the rule it enforces, re-lint, and retry once; if it rejects again, stop and show both messages with the hook output
 - Every commit and amend goes through the gate and takes its files from it: named paths in grouped mode, the user's index in single and amend mode; `git add -A`, `-u`, and `.` are never used, even when the tree holds nothing else
 - Respect the user's staging selection — if they staged specific files, commit exactly those
 - Grouping is your judgment under "Grouping into atomic commits"; make every grouping call yourself, since a commit split one way or another is cheap to live with

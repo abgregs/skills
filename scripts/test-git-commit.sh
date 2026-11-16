@@ -70,6 +70,16 @@ m trailer.txt 'fix(api): retry the upload' '' '- `upload` retries twice' '' 'Co-
 m seven.txt 'feat(api): add seven endpoints' '' '- one' '- two' '- three' '- four' '- five' '- six' '- seven'
 m ing.txt 'fix(api): retry the upload' '' '- Adding a retry to `upload`'
 m noblank.txt 'fix(api): retry the upload' '- `upload` retries twice'
+m subject.txt 'fix(names): split initials on any whitespace run' '' '- `initials` uses `split()`, so repeated spaces no longer raise IndexError' \
+  '- `test_double_space` covers a name with two spaces' '- `order_total_cents` replaces `order_total`' '- `TokenStore` drops `refreshAll`'
+m command.txt 'fix(names): split initials on any whitespace run' '' '- `initials` uses `split()`, so repeated spaces no longer raise IndexError' '- Add `test_double_space`'
+m passive.txt 'fix(session): read recording state from the session' '' '- `isRecording` is set by `Session`' '- `refreshAll` is no longer called'
+m whypassive.txt 'fix(billing): return order total in cents' '' '- Why: receipts showed 0.12 for a 12.00 order' '  as the total was divided by 100 twice' '- `order_total_cents` returns cents'
+m state.txt 'refactor(report): split render_text' '' '- `render_text` formats the rows, and the output is unchanged'
+m hook.txt 'fix(ui): keep the toggle state on resize'
+m warn2.txt 'fix(api): retry the upload twice' '' '- Adding a second retry to `upload`'
+m keyless.txt 'fix(auth): expire tokens on password change'
+m keyed.txt 'fix(auth): expire tokens on password change WID-12'
 
 echo "== lint: the skill's own format, in a repo with ASCII subjects and no enforcer"
 repo lint
@@ -85,6 +95,12 @@ t "an authorship trailer fails" 1 bash "$P" --lint "$W/trailer.txt"; has 'author
 t "seven bullets fail" 1 bash "$P" --lint "$W/seven.txt"; has 'hard cap 6'; ok
 t "an -ing bullet warns and still passes" 0 bash "$P" --lint "$W/ing.txt"; has '^LINT WARN: bullet opens with an -ing word'; ok
 t "a body with no blank line 2 fails" 1 bash "$P" --lint "$W/noblank.txt"; has 'line 2 must be blank'; ok
+t "bullets with the code as subject pass, edits with no new behavior too" 0 bash "$P" --lint "$W/subject.txt"; has '^lint: message OK'; lacks 'LINT WARN'; ok
+t "a bullet that opens with a command verb warns, naming its line" 0 bash "$P" --lint "$W/command.txt"; has '^LINT WARN: bullet opens with a command verb.*: 4:- Add `test_double_space`'; ok
+t "each passive bullet warns" 0 bash "$P" --lint "$W/passive.txt"
+has '^LINT WARN: passive verb.*: 3:- `isRecording` is set by `Session`'; has '^LINT WARN: passive verb.*: 4:- `refreshAll` is no longer called'; ok
+t "a passive Why:, wrapped or not, does not warn" 0 bash "$P" --lint "$W/whypassive.txt"; lacks 'LINT WARN'; ok
+t "a participle that names a state does not warn" 0 bash "$P" --lint "$W/state.txt"; lacks 'LINT WARN'; ok
 
 echo
 echo "== lint: a repo that enforces its own format, and the repo's history deciding ASCII"
@@ -96,6 +112,14 @@ repo gitmoji '✨ add search' '🐛 fix crash on launch'; commitlint
 t "where the repo's own subjects use emoji, an emoji subject passes" 0 bash "$P" --lint "$W/gitmoji.txt"; has '2 of the repo.s last 20 subjects use non-ASCII'; ok
 repo emoji-history 'feat(app): start' 'fix(app): stop the crash 🐛'
 t "the history decides without an enforcer too" 0 bash "$P" --lint "$W/emoji.txt"; has 'the ASCII check is skipped'; ok
+
+echo
+echo "== lint: the branch's ticket key"
+repo ticket; git switch -q -c feature/WID-12-login
+t "a subject without the branch's ticket key warns" 0 bash "$P" --lint "$W/keyless.txt"; has '^LINT WARN: subject lacks the ticket key WID-12'; ok
+t "a subject with the key passes" 0 bash "$P" --lint "$W/keyed.txt"; lacks 'LINT WARN'; ok
+git switch -q -c fix/UTF-8-decoding
+t "an encoding name in the branch is no ticket key" 0 bash "$P" --lint "$W/keyless.txt"; lacks 'ticket key'; ok
 
 echo
 echo "== the --commit gate: what lands, and each stop's exit and label"
@@ -126,13 +150,27 @@ head_is 'fix(ui): keep the toggle state on reload'; not_in_head b.txt; staged b.
 git reset -q
 printf '#!/bin/sh\necho "commit-msg: subject rejected by the team rule" >&2\nexit 1\n' > .git/hooks/commit-msg; chmod +x .git/hooks/commit-msg
 echo a5 > a.txt
-t "a commit-msg hook rejection exits 3, apart from the gate's own stops" 3 bash "$P" --commit "$W/ok.txt" -- a.txt
-has 'subject rejected by the team rule'; has '^NOT COMMITTED: git refused the commit'; head_is 'fix(ui): keep the toggle state on reload'; ok
+t "a commit-msg hook rejection exits 4, named as that hook" 4 bash "$P" --commit "$W/hook.txt" -- a.txt
+has 'subject rejected by the team rule'; has '^NOT COMMITTED: the commit-msg hook rejected the message.* — rewrite the subject'; head_is 'fix(ui): keep the toggle state on reload'; ok
+t "the same rejection again on the same message hands back to the user" 4 bash "$P" --commit "$W/hook.txt" -- a.txt
+has '^NOT COMMITTED: the commit-msg hook rejected the message.* — the same stop as the last run on this message: hand back'; ok
 rm .git/hooks/commit-msg
-printf '#!/bin/sh\necho "pre-commit: format check failed" >&2\nexit 1\n' > .git/hooks/pre-commit; chmod +x .git/hooks/pre-commit
-t "a pre-commit hook failure exits 3 too" 3 bash "$P" --commit "$W/ok.txt" -- a.txt
-has 'format check failed'; has '^NOT COMMITTED: git refused the commit'; head_is 'fix(ui): keep the toggle state on reload'; ok
+printf '#!/bin/sh\ngit status --short >/dev/null\necho "pre-commit: format check failed" >&2\nexit 1\n' > .git/hooks/pre-commit; chmod +x .git/hooks/pre-commit
+t "a pre-commit hook failure exits 3, even when the hook runs git itself" 3 bash "$P" --commit "$W/ok.txt" -- a.txt
+has 'format check failed'; has '^NOT COMMITTED: the pre-commit hook failed.* — fix what it flags'; head_is 'fix(ui): keep the toggle state on reload'; ok
 rm .git/hooks/pre-commit
+git config commit.gpgsign true; git config gpg.program false
+t "git refusing on its own, here a failed signature, exits 5 and goes to the user" 5 bash "$P" --commit "$W/ok.txt" -- a.txt
+has '^NOT COMMITTED: git refused the commit \(exit 128\).* — nothing in the message or the files fixes this'; ok
+printf '#!/bin/sh\ngit -c alias.boom="!false" boom\nexit 0\n' > .git/hooks/pre-commit; chmod +x .git/hooks/pre-commit
+t "a failing git command inside a passing hook is not that hook failing" 5 bash "$P" --commit "$W/ok.txt" -- a.txt
+has '^NOT COMMITTED: git refused the commit \(exit 128\)'; ok
+rm .git/hooks/pre-commit
+git config --unset commit.gpgsign; git config --unset gpg.program
+t "a lint stop on a message is a fix the first time" 2 bash "$P" --commit "$W/warn2.txt" -- a.txt; lacks 'hand back'; ok
+t "the identical lint stop on the same message hands back" 2 bash "$P" --commit "$W/warn2.txt" -- a.txt; has '— the same stop as the last run on this message: hand back'; ok
+t "a commit that lands clears the message's stop record" 0 bash "$P" --commit "$W/warn2.txt" --accept-warnings -- a.txt
+[ -e "$W/warn2.txt.stop" ] && why "warn2.txt.stop is still there"; ok
 
 echo
 echo "== the preflight report"
@@ -146,6 +184,20 @@ git reset -q; commitlint
 t "a commitlint config is reported as the repo's format" 0 bash "$P"; has '^subject format: REPO-ENFORCED \(commitlint.config.js\)'; ok
 cd "$W/gitmoji" || exit 1; echo a2 > a.txt
 t "emoji in the repo's subjects are reported" 0 bash "$P"; has '^subject characters: 2 of the last 20 subjects use non-ASCII'; ok
+cd "$W/ticket" || exit 1; git switch -q feature/WID-12-login; echo a2 > a.txt
+t "the branch's ticket key is reported" 0 bash "$P"; has '^ticket key: WID-12, from the branch name'; ok
+
+echo
+echo "== the amend report"
+repo amend 'chore: start' 'fix(ui): keep the toggle state'
+t "a clean tree does not stop it, and it shows the last commit and the subject facts" 0 bash "$P" --amend
+lacks 'NOTHING TO COMMIT'; has '^subject format: type\(scope\)'; has '^ +[0-9a-f]+ fix\(ui\): keep the toggle state'; has '^remote: no upstream'; ok
+echo a2 > a.txt; echo b2 > b.txt; git add b.txt
+t "it separates what an amend folds in from what stays out" 0 bash "$P" --amend
+printf '%s\n' "$OUT" | sed -n '/^-- staged/,/^-- unstaged/p' | grep -q 'b.txt' || why "b.txt is not under staged"
+printf '%s\n' "$OUT" | sed -n '/^-- unstaged/,/^-- recent/p' | grep -q 'a.txt' || why "a.txt is not under unstaged"; ok
+git reset -q; git init -q --bare "$W/amend-remote.git"; git remote add origin "$W/amend-remote.git"; git push -q -u origin main 2>/dev/null
+t "a commit already pushed is reported as needing a force-push" 0 bash "$P" --amend; has '^remote: the last commit is already on origin/main — updating it after the amend takes a force-push'; ok
 
 echo
 echo "== --size"

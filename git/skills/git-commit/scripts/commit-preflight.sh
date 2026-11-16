@@ -4,6 +4,10 @@
 #   commit-preflight.sh                 preflight report (state, conflicts,
 #                                       staged/unstaged, log, stats, suggested
 #                                       groupings by top-level dir)
+#   commit-preflight.sh --amend         amend report: the subject facts, the
+#                                       last commit, staged and unstaged, and
+#                                       whether the commit is already pushed;
+#                                       no clean-tree stop
 #   commit-preflight.sh --lint <file>   lint a commit message written to a
 #                                       file; exit 0 = OK, 1 = violations
 #   commit-preflight.sh --commit <file> [--accept-warnings] [--amend [--message-only]] [-- <path>...]
@@ -15,7 +19,11 @@
 #                                       nothing is committed on a stop, and its
 #                                       NOT COMMITTED line names the cause:
 #                                       exit 1 = the gate stopped before git ran,
-#                                       2 = the lint warned, 3 = git refused (a hook)
+#                                       2 = the lint warned, 3 = the pre-commit
+#                                       hook failed, 4 = the commit-msg hook
+#                                       rejected the message, 5 = git itself or
+#                                       another hook refused; a stop that
+#                                       repeats the last one says to hand back
 #   commit-preflight.sh --size <path>...
 #                                       changed lines a reviewer reads in a
 #                                       proposed commit, lockfiles excluded
@@ -76,6 +84,39 @@ find_enforcers() {
 # so a config alone says nothing about whether the repo wants them.
 nonascii_subjects() { git log -n 20 --format=%s 2>/dev/null | LC_ALL=C grep -c '[^ -~]'; }
 
+# The ticket key the branch name carries, such as WID-12 in feature/WID-12-login:
+# capitals and digits, a hyphen, a number. Encodings and standards that share
+# the shape (UTF-8, SHA-256) are not tickets. A bare issue number is left to
+# the skill's judgment, since branch names hold numbers for other reasons.
+ticket_key() {
+  git symbolic-ref --short -q HEAD 2>/dev/null | grep -oE '[A-Z][A-Z0-9]+-[0-9]+' \
+    | grep -vE '^(UTF|UCS|ISO|SHA|MD|TLS|SSL|HTTP)-' | head -1
+}
+
+# The facts every subject is held to, for both reports: the format the lint
+# applies, the characters the repo's history allows, and the branch's ticket key.
+subject_facts() {
+  local enforcers n key
+  enforcers="$(find_enforcers)"
+  if [ -n "$enforcers" ]; then
+    echo "subject format: REPO-ENFORCED ($(printf '%s' "$enforcers" | tr '\n' ',' | sed 's/,$//; s/,/, /g')) — write subjects in the repo's shape; the lint skips its type(scope) checks"
+  else
+    echo "subject format: type(scope): description (skill default — no repo enforcer found)"
+  fi
+  n="$(nonascii_subjects)"
+  if [ "${n:-0}" -gt 0 ]; then
+    echo "subject characters: $n of the last 20 subjects use non-ASCII, such as emoji — the lint allows it, as the repo does"
+  else
+    echo "subject characters: ASCII only — no recent subject uses anything else"
+  fi
+  key="$(ticket_key)"
+  if [ -n "$key" ]; then
+    echo "ticket key: $key, from the branch name — every subject carries it, and the lint warns when one does not"
+  else
+    echo "ticket key: none in the branch name — look for one in the recent subjects or the contributing notes"
+  fi
+}
+
 if [ "${1:-}" = "--lint" ]; then
   MSG="${2:?usage: commit-preflight.sh --lint <message-file>}"
   [ -f "$MSG" ] || { echo "lint: no such file: $MSG"; exit 1; }
@@ -109,6 +150,9 @@ if [ "${1:-}" = "--lint" ]; then
   [ "$WHYS" -le 1 ] || err "message has $WHYS Why: bullets (at most one)"
   [ "$WHYS" = 0 ] || [ "$(grep -m1 '^- ' "$MSG" | cut -c1-6)" = "- Why:" ] || err "the Why: bullet must be the first bullet"
   [ "${#SUBJ}" -le 72 ] || err "subject is ${#SUBJ} chars (max 72)"
+  KEY="$(ticket_key)"
+  [ -n "$KEY" ] && ! printf '%s\n' "$SUBJ" | grep -qF "$KEY" \
+    && warn "subject lacks the ticket key $KEY from the branch name — place it where the recent subjects do, else as the subject's last word"
   # Provenance greps run on a copy with inline code spans blanked out, so a
   # message that legitimately QUOTES an attribution string in backticks (e.g. a
   # commit about this very lint) does not trip the wall. sed is line-preserving,
@@ -159,6 +203,28 @@ if [ "${1:-}" = "--lint" ]; then
   HIT="$(grep -niE "^${BULLET}(improves?|cleans? ?up|cleanup|tweaks?|polish(es)?|enhances?|various|some|misc|miscellaneous|minor)([^[:alnum:]]|\$)" "$PROV_FILE" | head -1)"
   [ -n "$HIT" ] && warn "vague opener in a bullet — name what changed: $(orig_line "${HIT%%:*}")"
   # --- end clarity warnings ---
+  # Code as subject, for commit messages only: a PR body is prose, so this
+  # stays out of the block shared with pr-preflight.sh. Every bullet but Why:
+  # names the code that acts, so a bullet that opens with a command verb
+  # ("Add `test_x`") or uses a passive verb ("`reset` is removed") breaks the
+  # form. Why: and its wrapped lines are skipped: the world before the change
+  # may hold no code to make the subject. Warnings, not failures, since a noun
+  # can read as a verb. The command verbs are the ones the skill's recorded
+  # runs opened bullets with, and their kin; -en participles are listed, since
+  # "open", "often", and "token" end the same way. A participle that names a
+  # state ("is unchanged") is left alone.
+  FORM="$(awk 'NR == 1 { next } /^- Why:/ { why = 1; next } /^- / { why = 0; print NR ":" $0; next }
+              /^  [^ ]/ && !why { print NR ":" $0 }' "$PROV_FILE")"
+  CMD='(add|remove|drop|rename|move|replace|update|extract|delete|introduce|convert|bump|wire|expose|document|list|make|use|fix|keep|skip|guard|ensure|allow|prevent|avoid|restore|revert|inline|simplify|change|cover|mark|pin|set|split)'
+  for N in $(printf '%s\n' "$FORM" | grep -iE "^[0-9]+:- $CMD([^[:alnum:]]|\$)" | cut -d: -f1); do
+    warn "bullet opens with a command verb — start it with the code that acts: a test covers, a new name replaces, an owner drops: $(orig_line "$N")"
+  done
+  BE='(is|are|was|were|be|been|being|get|gets|got)[[:space:]]+((now|no longer|also|only|then|still|always|never|not)[[:space:]]+)?'
+  PART='([a-z]{2,}ed|set|put|read|built|made|sent|kept|left|held|run|hit|cut|split|bound|found|done|seen|shown|known|drawn|thrown|grown|given|taken|written|hidden|broken|chosen|driven|proven|frozen|forgotten)'
+  for N in $(printf '%s\n' "$FORM" | grep -iE "(^|[^[:alnum:]])$BE$PART([^[:alnum:]]|\$)" \
+             | grep -viE "(^|[^[:alnum:]])$BE(un[a-z]+ed|indeed)([^[:alnum:]]|\$)" | cut -d: -f1); do
+    warn "passive verb — make the code that acts the subject, as in: Session sets isRecording: $(orig_line "$N")"
+  done
   rm -f "$PROV_STRIP"
 
   if [ "$(wc -l < "$MSG")" -gt 1 ]; then
@@ -194,53 +260,104 @@ if [ "${1:-}" = "--commit" ]; then
       *) echo "$USAGE"; exit 1 ;;
     esac
   done
-  # An amend takes the index as the user confirmed it, and an empty index
-  # rewords the message only, so it names no paths and needs nothing staged.
-  if [ "$AMEND" = 1 ] && [ $# -gt 0 ]; then
-    echo "NOT COMMITTED: --amend takes the index, not paths — stage the files to fold in"
-    exit 1
-  fi
   if [ "$MSGONLY" = 1 ] && [ "$AMEND" = 0 ]; then
     echo "$USAGE"; exit 1
   fi
+  # Every stop prints one NOT COMMITTED line: its cause, then its fix. A stop
+  # that repeats the last stop on this message file made no progress, so its
+  # fix becomes a hand-back to the user instead of another loop. The record
+  # sits beside the message file and goes when the commit lands.
+  STOPF="$MSG.stop"
+  stop() { # <exit> <cause> <fix> [<what makes two stops the same; default the cause>]
+    local same="${4:-$2}"
+    if [ -f "$STOPF" ] && [ "$(cat "$STOPF")" = "$same" ]; then
+      echo "NOT COMMITTED: $2 — the same stop as the last run on this message: hand back, showing the user $MSG and the output above"
+    else
+      echo "NOT COMMITTED: $2 — $3"
+    fi
+    printf '%s' "$same" > "$STOPF" 2>/dev/null
+    exit "$1"
+  }
+  # An amend takes the index as the user confirmed it, and an empty index
+  # rewords the message only, so it names no paths and needs nothing staged.
+  [ "$AMEND" = 1 ] && [ $# -gt 0 ] && stop 1 "--amend takes the index, not paths" "stage the files to fold in"
   # A named path takes the whole file from the tree; with hunks staged by
   # hand, that would commit more than the user chose.
-  if [ $# -gt 0 ] && ! git diff --cached --quiet; then
-    echo "NOT COMMITTED: changes are staged — commit the index without paths (single mode), or unstage them before naming paths"
-    exit 1
-  fi
-  if [ "$AMEND" = 0 ] && [ $# = 0 ] && git diff --cached --quiet; then
-    echo "NOT COMMITTED: nothing staged — name this commit's paths after --"
-    exit 1
-  fi
+  [ $# -gt 0 ] && ! git diff --cached --quiet \
+    && stop 1 "changes are staged" "commit the index without paths (single mode), or unstage them before naming paths"
+  [ "$AMEND" = 0 ] && [ $# = 0 ] && git diff --cached --quiet \
+    && stop 1 "nothing staged" "name this commit's paths after --"
   OUT="$(bash "$SELF" --lint "$MSG")"; RC=$?
   echo "$OUT"
-  if [ "$RC" != 0 ]; then
-    echo "NOT COMMITTED: lint failed — fix the message in $MSG and run --commit again"
-    exit 1
-  fi
-  if echo "$OUT" | grep -q '^LINT WARN' && [ "$ACCEPT" = 0 ]; then
-    echo "NOT COMMITTED: lint warned — fix each warned line in $MSG and run --commit again; add --accept-warnings only when every warning misreads its line"
-    exit 2
-  fi
+  [ "$RC" != 0 ] && stop 1 "lint failed" "fix the message in $MSG and run --commit again" "$OUT"
+  echo "$OUT" | grep -q '^LINT WARN' && [ "$ACCEPT" = 0 ] \
+    && stop 2 "lint warned" "fix each warned line in $MSG and run --commit again; add --accept-warnings only when every warning misreads its line" "$OUT"
+  # git runs with trace2 on, so a refusal can name the hook that caused it.
   # --only with no paths rewords the last commit and leaves anything staged
   # in place, so a message-only amend never folds in the user's index.
+  T2="$(mktemp "${TMPDIR:-/tmp}/commit-trace.XXXXXX")"
   if [ "$MSGONLY" = 1 ]; then
-    git commit --amend --only -F "$MSG"
+    GIT_TRACE2_PERF="$T2" git commit --amend --only -F "$MSG"
   elif [ "$AMEND" = 1 ]; then
-    git commit --amend -F "$MSG"
+    GIT_TRACE2_PERF="$T2" git commit --amend -F "$MSG"
   elif [ $# -gt 0 ]; then
-    git -C "$CALLER" commit -F "$MSG" -- "$@"
+    GIT_TRACE2_PERF="$T2" git -C "$CALLER" commit -F "$MSG" -- "$@"
   else
-    git commit -F "$MSG"
+    GIT_TRACE2_PERF="$T2" git commit -F "$MSG"
   fi
   RC=$?
-  # git ran and refused: a pre-commit or commit-msg hook, or git itself. Its
-  # output is above; exit 3 keeps this stop apart from the gate's own.
-  if [ "$RC" != 0 ]; then
-    echo "NOT COMMITTED: git refused the commit (exit $RC) — a hook's output, if one ran, is above; follow the skill's hook rules"
-    exit 3
+  if [ "$RC" = 0 ]; then rm -f "$STOPF" "$T2"; exit 0; fi
+  # git ran and refused. The hook that failed, if one did, is the top-level
+  # process's (depth d0) child of class hook with a nonzero exit code; git
+  # commands a hook runs itself trace at depth d1 and are left out. A git too
+  # old for trace2 names no hook, and the stop falls to exit 5.
+  HOOK="$(awk -F'|' '
+    $2 ~ /^ *d0 *$/ && $4 ~ /child_start/ && match($NF, /\[ch[0-9]+\] class:hook hook:[A-Za-z_-]+/) {
+      s = substr($NF, RSTART, RLENGTH); id = s; sub(/^\[ch/, "", id); sub(/\].*/, "", id)
+      name = s; sub(/.*hook:/, "", name); hook[id] = name }
+    $2 ~ /^ *d0 *$/ && $4 ~ /child_exit/ && match($NF, /\[ch[0-9]+\] pid:-?[0-9]+ code:-?[0-9]+/) {
+      s = substr($NF, RSTART, RLENGTH); id = s; sub(/^\[ch/, "", id); sub(/\].*/, "", id)
+      code = s; sub(/.*code:/, "", code)
+      if ((id in hook) && code != 0) failed = hook[id] }
+    END { print failed }' "$T2" 2>/dev/null)"
+  rm -f "$T2"
+  case "$HOOK" in
+    pre-commit) stop 3 "the pre-commit hook failed, output above" "fix what it flags and run --commit again" ;;
+    commit-msg) stop 4 "the commit-msg hook rejected the message, output above" "rewrite the subject to the rule it enforces and run --commit again" ;;
+    "") stop 5 "git refused the commit (exit $RC), output above" "nothing in the message or the files fixes this: show the user the output" ;;
+    *) stop 5 "the $HOOK hook failed, output above" "the skill has no rule for this hook: show the user the output" ;;
+  esac
+fi
+
+# Amend report: the facts an amend's message is held to, without the
+# clean-tree stop, since a message-only amend starts from a clean tree.
+if [ "${1:-}" = "--amend" ]; then
+  echo "== AMEND PREFLIGHT =="
+  CONFLICTS="$(git status --porcelain | grep -E '^(UU|AA|DD|AU|UA|DU|UD)' || true)"
+  if [ -n "$CONFLICTS" ]; then
+    echo "UNRESOLVED CONFLICTS — resolve before amending. Stop."
+    echo "$CONFLICTS" | sed 's/^/    /'
+    exit 1
   fi
+  git rev-parse -q --verify HEAD >/dev/null || { echo "NO COMMIT TO AMEND — the branch has no commits yet. Stop."; exit 1; }
+  subject_facts
+  echo "-- last commit (the one the amend rewrites) --"
+  git log -1 --format='%h %s%n%b' | sed '/^[[:space:]]*$/d; s/^/    /'
+  echo "-- staged (folds in only when the user amends with staged changes) --"
+  if git diff --cached --quiet; then echo "    (none)"; else git diff --cached --stat | sed 's/^/    /'; fi
+  echo "-- unstaged (stays out of the amend) --"
+  if git diff --quiet; then echo "    (none)"; else git diff --stat | sed 's/^/    /'; fi
+  echo "-- recent subjects (match scope naming and tone) --"
+  git log --oneline -5 | sed 's/^/    /'
+  UP="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)"
+  if [ -z "$UP" ]; then
+    echo "remote: no upstream — the amend stays local"
+  elif git merge-base --is-ancestor HEAD "$UP" 2>/dev/null; then
+    echo "remote: the last commit is already on $UP — updating it after the amend takes a force-push"
+  else
+    echo "remote: the last commit is not on $UP yet — pushing the amend needs no force"
+  fi
+  echo "== END AMEND PREFLIGHT =="
   exit 0
 fi
 
@@ -280,21 +397,6 @@ STAGED="$(git diff --cached --name-only)"
 UNSTAGED="$(git diff --name-only)"
 UNTRACKED="$(echo "$STATUS" | grep '^??' | awk '{print $2}' || true)"
 MODE="$([ -n "$STAGED" ] && echo 'SINGLE (staged changes exist — commit exactly those)' || echo 'GROUPED (nothing staged — split unstaged into logical commits)')"
-ENFORCERS="$(find_enforcers)"
-enforcer_line() {
-  if [ -n "$ENFORCERS" ]; then
-    echo "subject format: REPO-ENFORCED ($(printf '%s' "$ENFORCERS" | tr '\n' ',' | sed 's/,$//; s/,/, /g')) — write subjects in the repo's shape; the lint skips its type(scope) checks"
-  else
-    echo "subject format: type(scope): description (skill default — no repo enforcer found)"
-  fi
-  local n; n="$(nonascii_subjects)"
-  if [ "${n:-0}" -gt 0 ]; then
-    echo "subject characters: $n of the last 20 subjects use non-ASCII, such as emoji — the lint allows it, as the repo does"
-  else
-    echo "subject characters: ASCII only — no recent subject uses anything else"
-  fi
-}
-
 TOTAL="$(git diff HEAD --shortstat 2>/dev/null | grep -oE '[0-9]+ insertion|[0-9]+ deletion' | awk '{s+=$1} END {print s+0}')"
 NPATHS="$({ [ -n "$STAGED" ] && echo "$STAGED"; [ -n "$UNSTAGED" ] && echo "$UNSTAGED"; [ -n "$UNTRACKED" ] && echo "$UNTRACKED"; } | sort -u | grep -c .)"
 
@@ -302,7 +404,7 @@ NPATHS="$({ [ -n "$STAGED" ] && echo "$STAGED"; [ -n "$UNSTAGED" ] && echo "$UNS
 # of the full layout would exceed the two git commands it replaces.
 if [ "$NPATHS" -le 1 ] && [ "$TOTAL" -le 50 ]; then
   echo "mode: $MODE"
-  enforcer_line
+  subject_facts
   echo "-- recent subjects (match scope naming and tone) --"
   git log --oneline -3 | sed 's/^/    /'
   echo "-- change --"
@@ -315,7 +417,7 @@ if [ "$NPATHS" -le 1 ] && [ "$TOTAL" -le 50 ]; then
 fi
 
 echo "mode: $MODE"
-enforcer_line
+subject_facts
 echo
 echo "-- recent subjects (match scope naming and tone) --"
 git log --oneline -5 | sed 's/^/    /'
