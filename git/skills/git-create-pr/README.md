@@ -1,6 +1,6 @@
 # git-create-pr
 
-Pushes the current branch and opens a pull request through `gh`, or rewrites the body of the PR already open for the branch. The body is written from the merge-base diff for a reviewer deciding whether to approve, and it is gated by a lint before anything ships.
+A skill for opening and updating pull requests in plain technical English: each body is written from the diff for the reviewer and passes a lint gate before it ships. Bodies carry the change and never its provenance: no attribution footer, tool names, or session links.
 
 ## Invocation
 

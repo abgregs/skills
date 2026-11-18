@@ -7,7 +7,7 @@ AI coding skills for git hygiene. Well-formed conventional commits, clean histor
 | Skill | Description |
 |-------|-------------|
 | `/git-commit` | Writes and groups commits in plain technical English: each one stands alone and passes a lint gate. Commits staged changes as one commit, splits unstaged changes, and supports an interactive `--amend` mode. Never force-pushes or bypasses hooks. |
-| `/git-create-pr` | Pushes the current branch and opens or updates a pull request through `gh`, with the body written from the merge-base diff. A read-only preflight resolves the base branch, push state, existing PR, the repo's own PR template and title style; a body lint gates the summary before it ships. Never force-pushes, bypasses hooks, or merges. |
+| `/git-create-pr` | Opens and updates pull requests in plain technical English: each body is written from the diff for the reviewer and passes a lint gate before it ships. Pushes the branch and opens the PR through `gh`, or rewrites the body of the one already open; a read-only preflight resolves the base branch, push state, the repo's own PR template, and its title style. Never force-pushes, bypasses hooks, or merges. |
 
 ## Install
 
