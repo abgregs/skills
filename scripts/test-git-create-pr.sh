@@ -206,6 +206,22 @@ t "a Verified: label with nothing under it fails" 1 bash "$P" --lint "$W/v-empty
 ver_body "$W/v-caveat.md" '- `pnpm test apps/api/orders`: 48 passed; the staging load test did not run'
 t "a real result with a caveat passes" 0 bash "$P" --lint "$W/v-caveat.md"; ok
 
+# Impact holds what a reviewer must weigh; a line saying there is nothing warns,
+# since the section's absence already says it. The phrases are the recorded misses.
+CHG='- `listOrders` returns a cursor'
+imp_body() { # imp_body <file> <Impact lines> [<Changes bullet>]
+  printf '## Summary\n\nLarge accounts timed out on the orders list. `listOrders` now pages.\n\n## Changes\n\n%s\n\n## Impact\n\n%s\n\n## Testing\n\n- [ ] Request `/orders?cursor=abc`\n- [ ] Request `/orders` with no cursor\n' \
+    "${3:-$CHG}" "$2" > "$1"; }
+imp_body "$W/i-none.md" 'User-visible text only: the picker hints and the Homebrew caveat show new sizes. No behavior changes.'
+t "an Impact that says there is nothing to weigh warns" 2 bash "$P" --lint "$W/i-none.md"; has 'Impact line says the change carries nothing to weigh'; ok
+imp_body "$W/i-mixed.md" "$(printf '%s\n' '- Clients that read every row must now follow the cursor.' '- Only user-visible strings change in the export dialog.')"
+t "each Impact line saying nothing warns, and a consequence beside it does not" 2 bash "$P" --lint "$W/i-mixed.md"
+[ "$(printf '%s\n' "$OUT" | grep -c 'Impact line says')" = 1 ] || why "want 1 Impact warning"; has 'Only user-visible strings change'; ok
+imp_body "$W/i-weigh.md" 'Clients that read every row must now follow the cursor; the first page holds 50.'
+t "an Impact that names a consequence passes" 0 bash "$P" --lint "$W/i-weigh.md"; ok
+imp_body "$W/i-changes.md" 'Clients that read every row must now follow the cursor.' '- `listOrders` returns a cursor; no API changes for a caller that passes none'
+t "the phrase outside Impact passes" 0 bash "$P" --lint "$W/i-changes.md"; ok
+
 # The title crosses as a file: one line, as typed.
 : > "$W/title-empty.txt"; printf 'First line\nSecond line\n' > "$W/title-two.txt"
 t "an empty title file fails" 1 bash "$P" --lint "$W/ok.md" --title-file "$W/title-empty.txt"; has 'title file is empty'; ok

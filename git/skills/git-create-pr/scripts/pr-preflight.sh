@@ -360,6 +360,15 @@ if [ "${1:-}" = "--lint" ]; then
       { [ "$VN" -gt 0 ] && [ "$VE" -lt "$VN" ]; } \
         || err "Verified: holds no check that ran — leave the label out when nothing ran, and keep the work under For the reviewer:"
     fi
+    # Impact holds what a reviewer must weigh, and its absence says there is
+    # nothing. A line saying so ("no behavior change", "user-visible text only")
+    # repeats the absence: every recorded Impact that belonged out said it in one
+    # of these shapes. A warning, since the phrase can sit beside a consequence.
+    NOWEIGH='(^|[^[:alnum:]])(no (breaking|behaviou?r(al)?|functional|runtime|logic|code|api|user-(visible|facing)) changes?|(user-(visible|facing)|visible|display|ui) (text|strings?|copy) only|only (the )?(user-(visible|facing) |visible |display |ui )?(text|strings?|copy|wording) changes?|(docs?|documentation|comments?|cosmetic|text|copy)[- ]only|no impact|nothing to weigh)([^[:alnum:]]|$)'
+    while IFS= read -r HIT; do
+      warn "Impact line says the change carries nothing to weigh — delete the line, and the section when nothing else is left: ${HIT%%:*}:$(sed -n "${HIT%%:*}p" "$BODY")"
+    done < <(printf '%s\n' "$PROSE" | awk '/^##[[:space:]]+Impact/ { f = 1; next } /^##[[:space:]]/ { f = 0 } f { print NR ":" $0 }' \
+          | grep -iE "^[0-9]+:.*$NOWEIGH")
   fi
 
   # An unfilled placeholder is bracketed text containing a space that is not a

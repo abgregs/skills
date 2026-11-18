@@ -32,10 +32,10 @@ Only when the change carries something a reviewer must weigh — breaking change
 ## Testing
 
 Verified:
-- What ran, where, and its result, with a link when one exists
+- Only when a check ran: what ran, where, and its result, with a link when one exists
 
 For the reviewer:
-- [ ] Each item names a real path, command, or behavior from this diff
+- [ ] A step from this diff that opens on its verb, then what to confirm: Request `/orders?page=3` and confirm the `Deprecation` header
 - [ ] Checkable by someone who did not write the code
 ```
 
@@ -51,11 +51,11 @@ One bullet per meaningful change, naming the file or function it touches: what c
 
 ### Impact
 
-Only for something a reviewer must weigh: a breaking change, a migration, performance, changed behavior, or a risk you are unsure of, named outright rather than hedged. Leave the section out otherwise. Some preflight report lines ask for an entry here; they say so.
+Only for something a reviewer must weigh: a breaking change, a migration, performance, changed behavior, or a risk you are unsure of, named outright rather than hedged. Leave the section out otherwise: its absence tells the reviewer there is nothing to weigh, so a line saying so, such as "no behavior change" or "user-visible text only", repeats the absence, and the lint warns on one. Some preflight report lines ask for an entry here; they say so.
 
 ### Testing
 
-Testing separates evidence from work. `Verified:` holds plain bullets for checks that actually ran — in this session, or reported by the user, such as a CI link or the screenshots they send — each naming the command or flow, where it ran, and the result. Name what ran, not who ran it: "Playwright `checkout.spec.ts` against staging: passed", never "the agent ran checkout". When nothing ran, leave out the `Verified:` label; the lint fails one that holds no check that ran. `For the reviewer:` holds unticked boxes only, so GitHub's task counter counts reviewer work alone; list what the author could not check, and with nothing verified it carries the whole list. A ticked box claims a check without its evidence, so the lint fails one — write it as a `Verified:` bullet instead. The one exception is a box a reviewer already ticked on an open PR, which the update keeps (see Updates). The lint also wants at least two items in Testing.
+Testing separates evidence from work. `Verified:` holds plain bullets for checks that actually ran — in this session, or reported by the user, such as a CI link or the screenshots they send — each naming the command or flow, where it ran, and the result. Name what ran, not who ran it: "Playwright `checkout.spec.ts` against staging: passed", never "the agent ran checkout". A check runs the code, as a test, a build, or a flow tried by hand; reading the diff is how the body was written, not a check of it. When nothing ran, leave out the `Verified:` label; the lint fails one that holds no check that ran. `For the reviewer:` holds unticked boxes only, so GitHub's task counter counts reviewer work alone; list what the author could not check, and with nothing verified it carries the whole list. Each box is a step that opens on its verb, then what to confirm: "Unplug the USB microphone mid-recording and confirm the recording continues". A ticked box claims a check without its evidence, so the lint fails one — write it as a `Verified:` bullet instead. The one exception is a box a reviewer already ticked on an open PR, which the update keeps (see Updates). The lint also wants at least two items in Testing.
 
 ### Diagram
 
@@ -99,7 +99,7 @@ Run `bash <skill-base-dir>/scripts/pr-preflight.sh [base]` (the skill's base dir
 
 Run the `diff:` command the preflight prints, exactly as printed — it is the merge-base diff with generated paths already excluded, so it is both what the PR will show and the smallest version of it worth reading. Commit subjects summarize intent; they are not a substitute for reading the diff.
 
-The preflight reports only what git can prove. Everything a reviewer actually thinks in — which areas this touches, what could break, whether the tests cover it — you name in the body from the diff you just read, not from a label the script guessed. Each `merge risk` line says what it asks of the body; act on each one or drop it on purpose, and leave the line counts out, since GitHub renders those. On an update, decide here whether the body needs a change at all (see Updates).
+The preflight reports only what git can prove. Everything a reviewer actually thinks in — which areas this touches, what could break, whether the tests cover it — you name in the body from the diff you just read, not from a label the script guessed. Each `merge risk` line says what it asks of the body; act on each one or drop it on purpose, and leave the line counts out, since GitHub renders those. Decide the diagram here too, by the Diagram rule: name the flow it draws, or why the change takes none. On an update, decide here whether the body needs a change at all (see Updates).
 
 ### 3. Write the body
 
@@ -120,7 +120,7 @@ fix(tap): report started from inside the run loop
 EOF
 ```
 
-Each run gets its own `mktemp` files, so two sessions never share a body; use the echoed paths in every later command, since shell variables do not carry between calls. Then read the body back for provenance (see Provenance).
+Each run gets its own `mktemp` files, so two sessions never share a body; use the echoed paths in every later command, since shell variables do not carry between calls. Then `Read` the body file back for provenance (see Provenance). `Edit` changes only a file this session has read, so that read is also what lets you fix the body in place later.
 
 ### 4. Ship — the format rules are walls, not requests
 
@@ -128,7 +128,7 @@ Each run gets its own `mktemp` files, so two sessions never share a body; use th
    ```bash
    bash <skill-base-dir>/scripts/pr-preflight.sh --ship <body-file> --title-file <title-file> --base <base>
    ```
-   It lints the body, pushes when the branch needs it, then creates or updates the PR. Nothing is pushed or posted unless the lint passes. On a stop its last line, `NOT SHIPPED: <cause> — <fix>`, names what stopped it and what to do. A fix that runs the ship command again keeps the same body file, edited in place with `Edit`, so the gate can tell when a stop repeats:
+   It lints the body, pushes when the branch needs it, then creates or updates the PR. Nothing is pushed or posted unless the lint passes. On a stop its last line, `NOT SHIPPED: <cause> — <fix>`, names what stopped it and what to do. A fix keeps the same body file, read and then edited in place with `Edit`, so the gate can tell when a stop repeats; run the ship command in a call after the edit succeeds, since a failed edit leaves the body as it was and the gate reports the old stop as a repeat. Each exit names its cause:
    - **Exit 1, the gate refused or the lint failed**: fix each flagged line, or the title as the line says.
    - **Exit 2, the lint warned**: fix each warned line. Add `--accept-warnings` only when every warning misreads its line (a noun ending in -ing, "May" as a month).
    - **Exit 3, the preflight stopped**: its `ABORT` line names what has to change first, such as a conflict, a diverged branch, or uncommitted changes in the diff. That is the user's call: show them the line and stop.
@@ -136,7 +136,7 @@ Each run gets its own `mktemp` files, so two sessions never share a body; use th
    - **Exit 5, the push or `gh` failed outside any hook**: nothing in the body fixes it; ship once more in case the network dropped it.
 
    When the line says the stop repeats the last one on this body, rewriting has stopped helping: hand back, showing the user the body and the output.
-2. Report the PR URL.
+2. Report the PR URL and the diagram decision from step 2 in one line: the flow it draws, or why the change takes none.
 3. When the diff changes something a person sees — UI, rendered pages, emails, CLI output — name each spot where a screenshot would help the reviewer, then stop. Screenshots are the user's choice, never a gate on opening the PR: they can attach images in GitHub themselves, or send hosted URLs for you to add under `Verified:`. To add them, run the preflight again, which now reports the open PR and its `keep:` lines, then edit the body and run the ship command it prints.
 
 ## Guardrails
