@@ -193,6 +193,19 @@ t "every placeholder, ticked box, and trailer fails in one stop" 1 bash "$P" --l
 [ "$(printf '%s\n' "$OUT" | grep -c 'ticked box in Testing')" = 2 ] || why "want 2 ticked-box failures"
 [ "$(printf '%s\n' "$OUT" | grep -c 'authorship trailer')" = 2 ] || why "want 2 trailer failures"; ok
 
+
+# Verified: holds checks that ran; the label goes when nothing did.
+ver_body() { # ver_body <file> <lines under Verified:>
+  { printf '## Summary\n\nLarge accounts timed out on the orders list. `listOrders` now pages.\n\n## Changes\n\n- `listOrders` returns a cursor\n\n## Testing\n\nVerified:\n'
+    [ -n "$2" ] && printf '%s\n' "$2"
+    printf '\nFor the reviewer:\n- [ ] Request `/orders?cursor=abc`\n- [ ] Request `/orders` with no cursor\n'; } > "$1"; }
+ver_body "$W/v-none.md" '- None run in this session.'
+t "a Verified: whose only bullet says nothing ran fails" 1 bash "$P" --lint "$W/v-none.md"; has 'Verified: holds no check that ran'; ok
+ver_body "$W/v-empty.md" ''
+t "a Verified: label with nothing under it fails" 1 bash "$P" --lint "$W/v-empty.md"; has 'Verified: holds no check that ran'; ok
+ver_body "$W/v-caveat.md" '- `pnpm test apps/api/orders`: 48 passed; the staging load test did not run'
+t "a real result with a caveat passes" 0 bash "$P" --lint "$W/v-caveat.md"; ok
+
 # The title crosses as a file: one line, as typed.
 : > "$W/title-empty.txt"; printf 'First line\nSecond line\n' > "$W/title-two.txt"
 t "an empty title file fails" 1 bash "$P" --lint "$W/ok.md" --title-file "$W/title-empty.txt"; has 'title file is empty'; ok

@@ -55,7 +55,7 @@ Only for something a reviewer must weigh: a breaking change, a migration, perfor
 
 ### Testing
 
-Testing separates evidence from work. `Verified:` holds plain bullets for checks that actually ran — in this session, or reported by the user, such as a CI link or the screenshots they send — each naming the command or flow, where it ran, and the result. Name what ran, not who ran it: "Playwright `checkout.spec.ts` against staging: passed", never "the agent ran checkout". When nothing ran, leave out the `Verified:` label. `For the reviewer:` holds unticked boxes only, so GitHub's task counter counts reviewer work alone; list what the author could not check, and with nothing verified it carries the whole list. A ticked box claims a check without its evidence, so the lint fails one — write it as a `Verified:` bullet instead. The one exception is a box a reviewer already ticked on an open PR, which the update keeps (see Updates). The lint also wants at least two items in Testing.
+Testing separates evidence from work. `Verified:` holds plain bullets for checks that actually ran — in this session, or reported by the user, such as a CI link or the screenshots they send — each naming the command or flow, where it ran, and the result. Name what ran, not who ran it: "Playwright `checkout.spec.ts` against staging: passed", never "the agent ran checkout". When nothing ran, leave out the `Verified:` label; the lint fails one that holds no check that ran. `For the reviewer:` holds unticked boxes only, so GitHub's task counter counts reviewer work alone; list what the author could not check, and with nothing verified it carries the whole list. A ticked box claims a check without its evidence, so the lint fails one — write it as a `Verified:` bullet instead. The one exception is a box a reviewer already ticked on an open PR, which the update keeps (see Updates). The lint also wants at least two items in Testing.
 
 ### Diagram
 
@@ -79,7 +79,9 @@ The slice of Simplified Technical English that fits prose quoting identifiers: a
 
 An update changes the body only for a reason: a new commit, or a change the user names. The preflight's `body:` line counts the commits on the branch since the body was last saved. One or more is a reason: read the saved current body against the diff and rewrite what the new commits changed. With none, and no change the user named, do not ship; the same holds when the line could not load the save time and the saved body still describes every change in the diff. Tell the user which PR you left, why, and what would give it a reason to change:
 
-> Left #8 unchanged: its body still describes the one commit on this branch, and no change was asked for. A new commit, or a change you name, would give it something to update.
+> Left #8 unchanged: no commit has reached the branch since its body was last saved, and no change was asked for. A new commit, or a change you name, would give it something to update.
+
+Say what you checked: the count, and the body against the diff only when you read them.
 
 The test is whether the body is accurate, not whether it follows this skill's template, so an accurate body in another shape stays as it is. Commits that reached the PR outside this skill count in the `body:` line like any other.
 

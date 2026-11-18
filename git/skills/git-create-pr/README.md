@@ -15,7 +15,7 @@ Autonomous: it decides the title and body, then ships them through one gate that
 
 - A body with `## Summary`, `## Changes`, `## Testing`, and `## Impact` only when there is a consequence to weigh; when the repo has a PR template, the body fills that template's shape instead
 - A title of 70 characters at most that matches the repo's own style, read from its history
-- A `## Testing` section that separates checks already run, cited with their results under `Verified:`, from unticked boxes left for the reviewer
+- A `## Testing` section that separates checks already run, cited with their results under `Verified:`, from unticked boxes left for the reviewer; the lint fails a `Verified:` label that holds no check that ran
 - One Mermaid diagram at the end of `## Summary`, only when the change moves a flow, a state machine, or a call order; GitHub renders it, so nothing extra is installed. The lint checks its shape: one block, inside Summary, a flowchart, sequence, or state diagram, about 12 nodes, quoted labels
 - On an update, a new body that keeps what people added in GitHub: ticked boxes, images and attachments, closing keywords such as `Closes #12`, and any line another person added since the PR opened, read from GitHub's history of the body. Your own edits share the login the skill runs as, so it finds those by reading the body, not by a check. The preflight counts the commits since the body was last saved; with none and no change asked for, it leaves the body as it is and says so, rather than rewording it
 - The PR URL, plus, when the diff changes something a person sees, the spots where a screenshot would help; adding them is optional, and hosted URLs sent back are written into the body and shipped through the same gate

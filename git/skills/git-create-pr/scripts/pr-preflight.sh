@@ -344,6 +344,22 @@ if [ "${1:-}" = "--lint" ]; then
     done < <(printf '%s\n' "$TESTING" | grep '^[[:space:]]*- \[[xX]\] ' \
           | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' \
           | { if [ -s "$KEEPF" ]; then grep -vxF -f "$KEEPF"; else cat; fi; })
+    # Verified: holds checks that ran. A label with nothing under it, or with
+    # only bullets saying nothing ran ("None run in this session."), promises
+    # evidence the section does not hold, so the label goes when nothing ran.
+    # A real result with a caveat ("passed; the UI test did not run") stays.
+    VER="$(printf '%s\n' "$TESTING" | awk '
+      /^[[:space:]]*\**Verified:\**[[:space:]]*$/ { v = 1; seen = 1; next }
+      /^[[:space:]]*\**For the reviewer:\**/ { v = 0; next }
+      v && /^[[:space:]]*[-*+] / {
+        n++; t = tolower($0); sub(/^[[:space:]]*[-*+] +/, "", t)
+        if (t ~ /^(none|nothing|n\/a|no (checks?|tests?)|not (yet )?run|did not run)([^[:alnum:]]|$)/) e++ }
+      END { if (seen) print n + 0, e + 0 }')"
+    if [ -n "$VER" ]; then
+      read -r VN VE <<<"$VER"
+      { [ "$VN" -gt 0 ] && [ "$VE" -lt "$VN" ]; } \
+        || err "Verified: holds no check that ran — leave the label out when nothing ran, and keep the work under For the reviewer:"
+    fi
   fi
 
   # An unfilled placeholder is bracketed text containing a space that is not a
