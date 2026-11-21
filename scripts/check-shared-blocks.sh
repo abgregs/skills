@@ -22,7 +22,9 @@ FAIL=0
 # Each block opens with a "needs from the caller" line naming what its host
 # script must define, since the copies share a body but not a caller.
 BLOCKS="provenance wall:git/skills/git-commit/scripts/commit-preflight.sh git/skills/git-create-pr/scripts/pr-preflight.sh
-clarity warnings:git/skills/git-commit/scripts/commit-preflight.sh git/skills/git-create-pr/scripts/pr-preflight.sh"
+clarity warnings:git/skills/git-commit/scripts/commit-preflight.sh git/skills/git-create-pr/scripts/pr-preflight.sh
+docs structure checks:doc-driven-dev/skills/debrief/scripts/doc-sweep.sh doc-driven-dev/skills/setup-docs/scripts/docs-audit.sh
+docs contract:doc-driven-dev/skills/brief/SKILL.md doc-driven-dev/skills/debrief/SKILL.md doc-driven-dev/skills/setup-docs/SKILL.md"
 
 extract() { # extract <file> <name> — the block body, comments and all
   awk -v n="$2" '

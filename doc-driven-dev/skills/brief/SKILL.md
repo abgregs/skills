@@ -3,109 +3,86 @@ name: brief
 description: Pre-task briefing. Searches project docs for relevant conventions, rules, and requirements before planning code changes. Use when starting any non-trivial task involving code changes.
 ---
 
-You are preparing to execute a code task. Before writing any code, you must ground yourself in the project's documentation and align your plan with established conventions.
+You are preparing to execute a code task. Before writing any code, ground yourself in the project's documentation and align your plan with its conventions.
 
 **Task:** $ARGUMENTS
 
-## Documentation Architecture
+<!-- # --- docs contract (identical block in brief, debrief, and setup-docs SKILL.md; scripts/check-shared-blocks.sh fails on drift) --- -->
+<!-- needs from the caller: nothing -->
+## Docs contract
 
-Project docs live in `docs/` with this structure:
+The structure these skills read and write:
 
 ```
 docs/
-├── _index.md              # Root TOC
-├── conventions/           # How to write code in this project
-│   └── _index.md
-├── architecture/          # How the system is structured and why
-│   └── _index.md
-├── requirements/          # Feature specs, constraints, acceptance criteria
-│   └── _index.md
-└── planning/              # Active and future work
-    └── _index.md
+├── _index.md              # root TOC: one line per category, then ## Cross-cutting axes
+├── conventions/           # how to write code in this project
+├── architecture/          # how the system is structured and why
+├── requirements/          # feature specs, constraints, acceptance criteria
+└── planning/              # active and future work
 ```
 
-Each folder has an `_index.md` TOC. Files are kebab-case, single-topic, max ~150 lines. Each `_index.md` entry includes a brief summary so the agent can triage relevance without opening every file. Docs should cross-reference related docs (e.g., a convention links to the architecture it depends on). Rules within docs may include a **Why:** annotation capturing the rationale — these are load-bearing, especially for rules that replaced an earlier convention.
+- **Indexes.** Every folder that holds docs has an `_index.md`, with one entry per doc: its link and a summary of a few words, so an agent can triage without opening the file.
+- **Files.** Kebab-case and single-topic, at most 150 lines; a doc that grows past the limit splits by subtopic. The bundled scripts check the limit.
+- **Cross-references.** A doc links the docs it depends on in other categories: a convention its architecture, a requirement the conventions that govern it.
+- **Why: lines.** A rule carries a one-line **Why:** when it replaces an earlier rule or departs from a common default, both required, and when a reader meeting it cold would ask why. The Why is what stops a later agent drifting back to the old rule or the default.
+- **Cross-cutting axes.** `docs/_index.md` ends with `## Cross-cutting axes`: one line per concern whose rules span several docs, written `- <axis>: <what it covers> · last audited: <YYYY-MM-DD or never>`.
+<!-- # --- end docs contract --- -->
 
 ## Workflow
 
 ### Step 1: Discover relevant docs — detector + judge
 
-Discovery is enumerable, so a bundled script does it; your job is judgment
-on its output, never re-deriving the enumeration by hand (and never skipping
-it because you "already know the codebase" — the scout's report is the
-required evidence that discovery ran).
+Discovery is enumerable, so a bundled script does it; your job is judgment on its output. Run it even when you know the codebase: its report is the evidence that discovery ran.
 
-1. **Run the detector**: `bash <skill-base-dir>/scripts/doc-scout.sh <task keywords>`
-   from inside the project repo (the skill's base directory is announced when
-   this skill loads; pass the task's distinctive words as arguments). It
-   prints the full doc inventory, every `_index.md` summary, root instruction
-   files, a term-hit relevance ranking, and the headings + **Why:** lines of
-   the shortlisted files — in one call, at a cost that scales with findings
-   rather than corpus size.
-2. **Judge the shortlist**: term hits are recall, not relevance — promote or
-   demote files based on the index summaries, then `Read` every doc you keep
-   IN FULL (the scout's headings are a map, not a substitute for the text).
-3. Follow cross-references in what you read to docs the term-match missed.
-4. `CLAUDE.md`/`AGENTS.md` rules count even when no term matched them.
+1. **Run the detector**: `bash <skill-base-dir>/scripts/doc-scout.sh <task keywords>` from inside the project repo (the skill's base directory is announced when this skill loads; pass the task's distinctive words, four letters or longer). It prints a digest with the findings first: a shortlist ranked by how many task terms each doc mentions, the headings and **Why:** lines of each shortlisted doc, the index entries that match the task, the headings of `CLAUDE.md` and `AGENTS.md`, and the docs per folder. The digest stays under a fixed size; the full report, every index whole and every doc with its size, is at the path the digest names.
+2. **Read the digest whole**, never through `head`, `sed`, or `grep`. Findings come first, so a cut drops the least of it; the last line then names the sections left out, which the full report holds. Open the report when the shortlist misses a doc the task needs.
+3. **Judge the shortlist**: term hits are recall, not relevance. Promote or demote docs by their index entries, then `Read` every doc you keep in full; the headings are a map, not the text.
+4. Follow cross-references in what you read to docs the term match missed.
+5. `CLAUDE.md` and `AGENTS.md` rules count even when no term matched them; read them in full unless they are already in your context.
 
-**Do not block the task because docs are missing or poorly structured.** Work with whatever exists. If the structure doesn't match the target architecture, note the gaps but proceed — the goal is to find applicable rules, not to fix the doc structure right now.
+When the scout finds no `docs/`, or a structure unlike the contract, work with what exists: note the gaps for `/debrief` and go on. Fixing the structure is not this task.
 
 ### Step 2: Identify applicable rules and conventions
 
-List every convention, rule, pattern, or requirement from the docs that applies to this task. Group them by source file so the user can verify, and cite `file:line` for each rule — the citation is the evidence the rule was read from disk, not recalled from memory. Format:
+List every convention, rule, pattern, or requirement from the docs that applies to this task. Group them by source file so the user can verify, and cite `file:line` for each rule: the citation is the evidence the rule was read from disk, not recalled from memory. Take the line number from a `Read` or `grep -n`, which number lines; a line counted from `cat` output is a guess. Format:
 
 ```
 **Applicable rules:**
 
 From `docs/conventions/components.md`:
-- Rule 1
-- Rule 2
-  **Why:** brief rationale (carry forward verbatim from the source doc when present)
-
-From `docs/architecture/data-flow.md`:
-- Rule 3
+- Rule 1 (docs/conventions/components.md:12)
+- Rule 2 (docs/conventions/components.md:18)
+  **Why:** brief rationale, carried forward verbatim from the source doc
 
 From `CLAUDE.md`:
-- Rule 4
+- Rule 3 (CLAUDE.md:40)
 ```
 
-When a rule has a **Why:** annotation in the source doc, carry it forward verbatim. The rationale often determines how to handle edge cases the rule doesn't explicitly cover, and rules that replaced earlier conventions carry rationale that prevents regression to the old pattern.
+When a rule has a **Why:** line in its source, carry it forward verbatim. The rationale decides edge cases the rule does not cover, and a rule that replaced an earlier convention carries the reason not to regress to it.
 
-If docs exist but in a different structure (no `_index.md`, flat folder, different naming), still extract the applicable rules — just note the structural gaps as findings for `/debrief`.
+If no docs exist and `CLAUDE.md` holds no conventions, recommend `/setup-docs` before proceeding. Any useful documentation, even disorganized, is enough to move forward.
 
-If no docs exist at all and no `CLAUDE.md` conventions are found, recommend `/setup-docs` before proceeding. But if there's *any* useful documentation — even disorganized — use it and move forward.
+### Step 3: Resolve ambiguity before planning
 
-### Step 3: Check if docs need updates before starting
+If a rule is ambiguous for this task, two rules pull against each other, or the task itself is unclear, ask the user now, one question at a time, with your recommended reading first. Do not guess at an ambiguous convention: the answer shapes both the doc updates and the plan.
 
-Evaluate whether the task itself signals a need to update docs *before* implementation:
+### Step 4: Update the docs the task changes
+
+Decide whether the task itself needs a doc change before implementation:
 
 - Does the task introduce a new pattern that should be documented?
-- Does the task contradict an existing convention? If so, should the convention change?
-- Are there gaps in the docs that would leave future tasks unguided?
+- Does it contradict an existing convention, and should the convention change?
+- Would a gap in the docs leave future tasks unguided?
 
-If doc changes are needed, propose them now and get user confirmation before proceeding to the plan. Make the edits (updating `_index.md` files as needed) so the plan in Step 4 can reference the updated conventions.
+If so, propose the changes, get the user's confirmation, and make the edits, with their `_index.md` entries and the **Why:** lines the contract requires, so the plan can cite the updated conventions.
 
-### Step 4: Propose an aligned plan
+### Step 5: Propose the plan, then stop
 
-Enter plan mode and propose your implementation plan. The plan must:
+Present the implementation plan, in plan mode where the harness offers one. The plan:
 
-- Explicitly reference which conventions/rules it follows
-- Call out any areas where conventions are ambiguous or don't cover the situation
-- Flag any tradeoffs where following one convention might conflict with another
+- cites the conventions and rules it follows, by `file:line`;
+- names any area the conventions do not cover, and any tradeoff where following one convention strains another;
+- lists the gaps, ambiguities, and missing cross-references you found that do not block this task, as candidates for `/debrief`.
 
-### Step 5: Note gaps for future docs
-
-If you discovered gaps, ambiguities, or missing cross-references during research that don't block this task but would help future tasks, list them briefly. These become candidates for `/debrief` to address after the task is complete.
-
-### Step 6: Clarify and confirm
-
-If anything is unclear — in the docs, the task, or how conventions apply — ask the user before proceeding. Do not guess when conventions are ambiguous.
-
-Wait for user approval of the plan before writing any code.
-
-## Important
-
-- Do NOT skip doc discovery even if you think you know the codebase — the doc-scout report must appear in the transcript; a briefing without it is non-compliant
-- Do NOT write code during this workflow — this is planning only
-- Never block a task because docs are imperfect — adapt to what exists, note what's missing
-- Only recommend `/setup-docs` when there are truly no docs or conventions to work from
+Then stop: write no code until the user approves the plan.

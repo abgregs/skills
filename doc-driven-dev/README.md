@@ -51,7 +51,7 @@ docs/
 └── planning/              # Active and future work
 ```
 
-Each folder has an `_index.md` with entries and summaries. Files are kebab-case, single-topic, max ~150 lines.
+Each folder has an `_index.md` with entries and summaries. Files are kebab-case, single-topic, max 150 lines. The full rules (index entries, the line limit, when a rule needs a **Why:**, and the axes line format) are the docs contract that opens each skill's `SKILL.md`; the repo's `scripts/check-shared-blocks.sh` keeps the three copies identical, and `scripts/test-doc-driven-dev.sh` tests the skills' detectors.
 
 The root `_index.md` also holds a **cross-cutting axes** list — concerns whose rules span multiple docs (data lifecycle, caching, auth, time handling, etc.), bootstrapped by `/setup-docs` and confirmed by you. Each `/debrief` audits one axis across the whole corpus — chosen from the diff when it implicates one, otherwise least-recently-audited, or named explicitly in the `/debrief` arguments — to catch rules that are individually correct but coexist badly (e.g. a caching TTL that violates a data-deletion SLA). Single-topic docs keep per-task reading cheap, but that same fragmentation hides conflicts between files; the rotating audit is the counterweight.
 
