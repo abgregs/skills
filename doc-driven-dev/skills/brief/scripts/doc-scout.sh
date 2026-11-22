@@ -65,17 +65,23 @@ else both "task terms: none given, so no shortlist"; fi
 both "full report: $REPORT"
 
 # ---- 1. relevance shortlist: how many task terms each doc mentions
-both "" "== 1. RELEVANCE SHORTLIST (term hits: how many task terms the doc mentions) =="
+both "" "== 1. RELEVANCE SHORTLIST (term hits: how many task terms the doc mentions; ranked by rarity, a term in few docs counting for more) =="
 : > "$TMP/short"
 if [ "$HAVE_DOCS" = 0 ]; then both "(skipped: no docs directory)"
 elif [ "$HAVE_TERMS" = 0 ]; then both "(skipped: no task terms; triage from the index entries below)"
 else
   : > "$TMP/hits"
   while IFS= read -r t; do
-    grep -rli --include='*.md' -F -- "$t" "$DOCS_DIR" 2>/dev/null >> "$TMP/hits" || true
+    grep -rli --include='*.md' -F -- "$t" "$DOCS_DIR" 2>/dev/null | sed "s|^|$t	|" >> "$TMP/hits" || true
   done < "$TMP/terms"
   if [ -s "$TMP/hits" ]; then
-    sort "$TMP/hits" | uniq -c | sort -k1,1rn -k2,2 | head -n "$SHORTLIST" > "$TMP/short"
+    # Rank by rarity: a term found in few docs counts for more than one found in many, so a
+    # generated folder that repeats common task words cannot crowd out the docs that matter.
+    # Each matched term adds 1 / (docs holding it); ties go to more terms, then to the path.
+    awk -F'\t' '{ df[$1]++; pair[NR] = $1 "\t" $2 }
+      END { for (i = 1; i <= NR; i++) { split(pair[i], p, "\t"); s[p[2]] += 1 / df[p[1]]; n[p[2]]++ }
+            for (f in s) printf "%.4f\t%d\t%s\n", s[f], n[f], f }' "$TMP/hits" \
+      | sort -t'	' -k1,1nr -k2,2nr -k3,3 | head -n "$SHORTLIST" | awk -F'\t' '{ print $2, $3 }' > "$TMP/short"
     awk '{ printf "  %s term-hits: %s\n", $1, $2 }' "$TMP/short" | tee -a "$REPORT" >> "$D"
   else
     both "  (no term hits; judge relevance from the index entries below)"

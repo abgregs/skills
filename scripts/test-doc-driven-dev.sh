@@ -70,11 +70,20 @@ size_under 21000; has 'term-hits: docs/caching/cache-invalidation.md'
 before '== 1\. RELEVANCE SHORTLIST' '== 3\. INDEX ENTRIES'
 before 'term-hits: docs/caching' '== 3\. INDEX ENTRIES'
 has 'Why:\*\* stale reads'; has 'docs/caching/_index.md \(1 entries, 1 match'; ok
+
 t "scout: the full report keeps every index whole" 0 grep -c 'with a long summary line' "$(git rev-parse --absolute-git-dir)/doc-scout-report.txt"
 has '^1200$'; ok
 t "scout: with no terms every index prints, so the budget cuts and names the report" 0 env DOC_SCOUT_BUDGET=5000 bash "$SCOUT"
 size_under 5600; has 'DIGEST CUT at 5000'; has 'doc-scout-report.txt'; has 'END SCOUT'
 has 'inside section 3 \(INDEX ENTRIES\); not shown: 4 \(ROOT INSTRUCTION FILES\), 5 \(INVENTORY\)'; ok
+
+# Generated docs that repeat common task words must not crowd out the doc with the rare one.
+repo scout-rarity; mkdir -p docs/reference docs/conventions
+printf '# Caching\n\n- Caching is per user, for 10 minutes.\n' > docs/conventions/caching.md
+for i in $(seq 1 20); do printf '# Table t%s\n\nColumns: user_id, list_id. Lists rows a user owns; repeat reads hit it.\n' "$i" > "docs/reference/t$i.md"; done
+commit
+t "scout: a doc holding a rare task term outranks many holding common ones" 0 bash "$SCOUT" caching lists user repeat
+before 'term-hits: docs/conventions/caching.md' 'term-hits: docs/reference/t1.md'; ok
 
 repo scout-nodocs
 t "scout: no docs dir with terms given says so, not 'no terms'" 0 bash "$SCOUT" caching layer

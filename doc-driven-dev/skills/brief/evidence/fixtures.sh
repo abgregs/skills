@@ -113,7 +113,13 @@ EOF
     printf -- '- [area-%s](area-%s/_index.md): generated reference for area %s of the schema\n' "$i" "$i" "$i" >> docs/reference/_index.md
     printf '# Area %s\n\n' "$i" > "$d/_index.md"
     for j in $(seq 1 20); do
-      printf '# Table t%s_%s\n\nColumns: id, created_at, owner, status.\n' "$i" "$j" > "$d/table-$j.md"
+      # The first table of half the areas carries the columns a real schema has, so the
+      # noise uses the task's common words (user, lists, cache) as generated docs do.
+      if [ "$j" = 1 ] && [ "$i" -le 15 ]; then
+        printf '# Table t%s_%s\n\nColumns: id, user_id, list_id, cache_version, created_at.\nLists rows a user owns; repeat loads read the cache table.\n' "$i" "$j" > "$d/table-$j.md"
+      else
+        printf '# Table t%s_%s\n\nColumns: id, created_at, owner, status.\n' "$i" "$j" > "$d/table-$j.md"
+      fi
       printf -- '- [table-%s.md](table-%s.md): columns and indexes of table t%s_%s, generated from the schema\n' "$j" "$j" "$i" "$j" >> "$d/_index.md"
     done
   done

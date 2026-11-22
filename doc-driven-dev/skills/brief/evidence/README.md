@@ -16,6 +16,7 @@ The README describes behavior no recorded run exercises yet:
 - Step 4's doc edits: no case has a task that changes a convention, so no run proposes or makes a doc update before planning.
 - The user's answers. Every arm runs headless, so each ends on its questions or its plan; what the skill does once the user answers is unrecorded.
 - Plan mode: headless runs have none, so whether the skill enters it where the harness offers one is unrecorded.
+- A doc that shares only common words with the task. In 0001, `data-lifecycle.md` matches "user" and "caches", which fifteen generated tables also hold, so it misses the shortlist; the run reaches it only by following `caching.md`'s link to it, as Step 1.4 asks. A doc no shortlisted doc links stays unfound unless its index entry is read.
 - A task whose terms are all shorter than four letters, and a scout run outside a git repo. The scout's output for both is covered by the repo's tests, not by a run.
 
 ## Method
@@ -54,3 +55,5 @@ Batches 1 to 4 ran on earlier states of this version; none is recorded as a case
 | 3 | `a9e32cbbcc63` | 0003 again left the report closed, and again matched 0001's rules and lines. Step 1 had told the agent to read the left-out sections before judging the shortlist; followed in neither run, with no cost to either, it now says to open the report when the shortlist misses a doc the task needs. |
 | 4 | `ddc58bd08254` | All three cases as recorded in batch 6, except that 0003 left the report closed. Nothing to change from the runs. After it, the docs contract, shared with debrief, gained a rule on where a **Why:**'s reason comes from, because a debrief run wrote a cause no file stated; batch 6 reran these cases on that state. |
 | 7 | `7e3a0b2c7088` | No change: the recorded state, run twice per case beside a copy of the three skills reworded to Simplified Technical English. All six runs matched the recorded results. The reworded copy tied, with one citation a line off in a run that read `CLAUDE.md` with `cat`; it was not adopted, for debrief's result (see debrief's evidence History). |
+
+**Review after batch 7.** The 600 generated tables held none of the task's words, so the shortlist was never under pressure. Fifteen of them now carry the columns a real schema has (`user_id`, `list_id`, `cache_version`). Ranked by how many task terms a doc mentions, those tables filled the shortlist for two of the three term sets the batch 7 runs passed, and `caching.md` dropped out. The scout now ranks by rarity, each matched term adding 1 / (docs holding it), and `caching.md` ranks first or second for all three. The next batch reruns 0001 and 0003 on this fixture, on Opus.
