@@ -25,7 +25,7 @@ docs/
 - **Indexes.** Every folder that holds docs has an `_index.md`, with one entry per doc: its link and a summary of a few words, so an agent can triage without opening the file.
 - **Files.** Kebab-case and single-topic, at most 150 lines; a doc that grows past the limit splits by subtopic. The bundled scripts check the limit.
 - **Cross-references.** A doc links the docs it depends on in other categories: a convention its architecture, a requirement the conventions that govern it.
-- **Why: lines.** A rule carries a one-line **Why:** when it replaces an earlier rule or departs from a common default, both required, and when a reader meeting it cold would ask why. The Why is what stops a later agent drifting back to the old rule or the default.
+- **Why: lines.** A rule carries a one-line **Why:** when it replaces an earlier rule or departs from a common default, both required, and when a reader meeting it cold would ask why. The Why is what stops a later agent drifting back to the old rule or the default. Its reason comes from a source a reader can check: the diff, a commit message, a code comment, a doc, or the user in this session. Never supply a cause none of them states: when the reason is unknown, ask the user, and with no answer, write what the rule replaces followed by `reason not recorded`.
 - **Cross-cutting axes.** `docs/_index.md` ends with `## Cross-cutting axes`: one line per concern whose rules span several docs, written `- <axis>: <what it covers> · last audited: <YYYY-MM-DD or never>`.
 <!-- # --- end docs contract --- -->
 
@@ -35,7 +35,7 @@ docs/
 
 | Call | When | Exit |
 |---|---|---|
-| `--scope [--base <rev>]` | Step 1: picks the base this debrief compares against, prints it with the commits and change stat since | 0; 1 when not in a git repo or `<rev>` is not a commit |
+| `--scope [--base <rev>]` | Step 1: picks the base this debrief compares against, prints it with the commits, change stat, and untracked files since | 0; 1 when not in a git repo or `<rev>` is not a commit; 3 nothing changed since the base; 4 no reliable base |
 | no flag | Step 5 and Step 6: the sweep. A digest with the findings first, each under an ID, and the full report at the path it prints | 0; 1 when there is no `docs/` (set `DOC_SWEEP_DIR` when the docs live elsewhere) |
 | `--verdicts -` | Step 5 and Step 6: adds the verdict lines it reads on stdin to this debrief's, then checks every finding of the last sweep has one | 0 all judged; 2 a finding has no verdict or no reason, each named; 3 no sweep has run in this worktree |
 | `--mark` | the end: records HEAD as the next debrief's base | 0; 2 refused while a finding of the last sweep has no verdict, each named |
@@ -46,8 +46,10 @@ Read every digest whole, never through `head`, `sed`, or `grep`. When it says it
 
 ### Step 1: Understand what changed
 
-1. Run `doc-sweep.sh --scope`. When the task names its own range (a PR, a branch, a commit such as `47ee8a7..HEAD`), pass where it starts: `--scope --base origin/main`. Without `--base` the script takes the last debrief's mark when it is an ancestor of HEAD, else the merge-base with the default branch; it prints the base it used and why, and the sweep in Step 5 reuses it.
-2. Read the change with the `git diff <base>` command it prints, and summarize it briefly: what was added, modified, or removed.
+1. Run `doc-sweep.sh --scope`. When the task names its own range (a PR, a branch, a commit such as `47ee8a7..HEAD`), pass where it starts: `--scope --base origin/main`. Without `--base` the script takes the last debrief's mark when it is an ancestor of HEAD, else the merge-base with the default branch, else HEAD when only uncommitted changes exist; it prints the base it used and why, and the sweep in Step 5 reuses it. Committed, staged, unstaged, and untracked changes all count.
+   - Exit 3, nothing changed since the base: tell the user there is nothing to debrief, and stop.
+   - Exit 4, no reliable base: ask the user which range to review, offering the recent commits it prints, then run `--scope --base <rev>`. With no user to ask, stop and say so.
+2. Read the change with the `git diff <base>` command it prints, and `Read` each untracked file it lists, since `git diff` leaves those out. Summarize the change briefly: what was added, modified, or removed.
 
 ### Step 2: Review changes against docs
 
@@ -155,4 +157,4 @@ Present a final summary:
 - Axis audited, with any coexistence findings
 - Any open items that need attention later
 
-When the debrief is complete (fixes committed), run `doc-sweep.sh --mark` so the next debrief's diff starts from here. It refuses with exit 2 while a finding of the last sweep has no verdict: send the missing lines with `--verdicts -` and mark again. `--mark --accept-unjudged` records the base with findings unjudged; that is the user's call, so use it only when the user says to.
+When the debrief is complete, commit the doc fixes, then run `doc-sweep.sh --mark` so the next debrief's diff starts from here. When the code the fixes describe is itself uncommitted, leave the fixes beside it for the user to commit together, and mark anyway: the mark records HEAD, so the uncommitted changes come back in the next debrief. Say so in the summary. It refuses with exit 2 while a finding of the last sweep has no verdict: send the missing lines with `--verdicts -` and mark again. `--mark --accept-unjudged` sets the mark with findings unjudged; that is the user's call, so use it only when the user says to.

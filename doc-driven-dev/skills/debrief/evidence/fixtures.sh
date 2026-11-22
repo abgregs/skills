@@ -7,11 +7,62 @@
 #         the arm runs: a branch of eight commits whose last is the code change.
 #   0002: builds <dir>/notes on main: an old debrief's mark, a v1.2 tag after
 #         it, and three commits since the tag; the arm runs in <dir>/notes.
+#   0003: builds <dir>/ledger on a branch with no commits of its own and the
+#         change uncommitted: a staged code edit, an unstaged doc edit, and an
+#         untracked file holding the new rule; the arm runs in <dir>/ledger.
+#   0004: builds <dir>/ledger the same way, with a clean tree and no change.
 set -u
 CASE="${1:?case}"; DIR="${2:?dir}"
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
 c() { git add -A && git commit -qm "$1"; }
+
+if [ "$CASE" = 0003 ] || [ "$CASE" = 0004 ]; then
+  mkdir -p "$DIR/ledger" && cd "$DIR/ledger" || exit 1
+  git init -q -b main
+  mkdir -p src docs/conventions docs/architecture
+  printf '# ledger\n\nA household budgeting API. Node 22, plain ES modules.\n\n## Workflow\nAfter a code task, run /debrief.\n' > CLAUDE.md
+  cat > docs/_index.md <<'EOF'
+# ledger docs
+
+- [conventions/](conventions/_index.md): how code is written here
+- [architecture/](architecture/_index.md): how the system fits together and why
+
+## Cross-cutting axes
+- money: how amounts are stored, rounded, and shown · last audited: never
+EOF
+  printf '# Conventions\n\n- [money.md](money.md): how amounts are stored and rounded\n' > docs/conventions/_index.md
+  cat > docs/conventions/money.md <<'EOF'
+# Money
+
+- Store every amount in `amount_dollars`, a float.
+- Round to two places only when an amount is shown.
+EOF
+  printf '# Architecture\n\n- [entries.md](entries.md): the entries table and its columns\n' > docs/architecture/_index.md
+  cat > docs/architecture/entries.md <<'EOF'
+# Entries
+
+Each entry row holds `id`, `account`, `posted_on`, and `amount_dollars`.
+EOF
+  printf 'export const entry = (account, amount_dollars) => ({ account, amount_dollars });\n' > src/ledger.js
+  printf '# ledger\n' > README.md
+  c "ledger: entries in dollars"
+  # Unrelated work on main, which a HEAD~5 base would sweep in.
+  for i in 1 2 3 4 5 6; do echo "- release note $i" >> README.md; c "chore: release note $i"; done
+  git checkout -q -b feat/cents
+  [ "$CASE" = 0004 ] && exit 0
+  # The change, none of it committed: the code edit staged, the doc edit
+  # unstaged, and the new rule in a file not yet added.
+  printf "import { toCents } from './currency.js';\nexport const entry = (account, dollars) => ({ account, amount_cents: toCents(dollars) });\n" > src/ledger.js
+  git add src/ledger.js
+  sed -i.bak 's/`amount_dollars`/`amount_cents`/' docs/architecture/entries.md && rm -f docs/architecture/entries.md.bak
+  cat > src/currency.js <<'EOF'
+// Every amount is an integer count of cents. Floats drifted: a month of
+// 0.10 entries summed to 2.9999999999999996.
+export const toCents = (dollars) => Math.round(dollars * 100);
+EOF
+  exit 0
+fi
 
 if [ "$CASE" = 0002 ]; then
   mkdir -p "$DIR/notes" && cd "$DIR/notes" || exit 1

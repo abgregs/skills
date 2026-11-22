@@ -140,6 +140,44 @@ has "the last debrief's mark"; lacks 'the base --scope picked'; ok
 t "sweep: --mark writes nothing into the working tree" 0 git status --porcelain
 lacks '.'; ok
 
+# ============================== the base: uncommitted work and nothing to review
+# A debrief often runs before the work is committed, so the doc fixes can land
+# with the code; every working-tree state must reach the sweep, and a clean
+# tree with no range must stop rather than guess.
+
+repo sweep-dirty; mkdir -p docs src
+printf -- '- [a.md](a.md): the doc that renames\n- [b.md](b.md): the doc that lags\n' > docs/_index.md
+echo 'its folder is a `workspace` row' > docs/a.md; echo "a workspace can be archived" > docs/b.md; echo v0 > src/app.js; commit base
+for i in 1 2 3 4 5 6; do echo "v$i" >> README.md; commit "main $i"; done
+git checkout -q -b feat
+t "sweep: a branch with no commits and a clean tree has no reliable base, so --scope stops" 4 bash "$SWEEP" --scope
+has 'no reliable base'; has 'ask the user which range'; has 'main 6'; lacks '== DOC SWEEP SCOPE'; ok
+t "sweep: a refused --scope leaves no base for the sweep to reuse" 0 bash "$SWEEP"
+lacks 'the base --scope picked'; has 'FALLBACK HEAD~5'; ok
+echo 'its folder is a `folders` row' > docs/a.md; git add docs/a.md
+t "sweep: a staged-only change on a branch with no commits is reviewed from HEAD" 0 bash "$SWEEP" --scope
+has "base: $(git rev-parse --short=12 HEAD)  \(HEAD: no mark and no commits past the branch point"; has 'docs/a.md'; lacks 'main 6'; ok
+t "sweep: the sweep finds a term retired by a staged edit" 0 bash "$SWEEP"
+has 'term: workspace'; has 'docs/b.md'; ok
+git reset -q; t "sweep: an unstaged-only edit is reviewed the same way" 0 bash "$SWEEP" --scope
+has 'HEAD: no mark'; has 'docs/a.md'; ok
+git checkout -q -- docs/a.md; echo "export const x = 1" > src/new.js
+t "sweep: an untracked-only change is reviewed, and --scope says to read the file" 0 bash "$SWEEP" --scope
+has 'HEAD: no mark'; has 'UNTRACKED FILES \(1\): not in git diff; Read each one'; has 'src/new.js'; has 'Read the untracked files above'; ok
+for i in $(seq 1 35); do echo x > "src/gen-$i.js"; done
+t "sweep: a long untracked list is cut at 30, with the full list in the git dir" 0 bash "$SWEEP" --scope
+has 'UNTRACKED FILES \(36\)'; has '\+6 more, listed in .*doc-sweep-untracked'; ok
+rm -f src/gen-*.js src/new.js; git checkout -q main; echo v7 >> README.md
+t "sweep: uncommitted work on the default branch with no mark is reviewed from HEAD" 0 bash "$SWEEP" --scope
+has 'HEAD: no mark'; has 'pass --base <rev> to include earlier commits'; lacks 'main 6'; ok
+git checkout -q -- README.md; bash "$SWEEP" --mark --accept-unjudged > /dev/null
+t "sweep: a clean tree at the mark has nothing to debrief, so --scope stops" 3 bash "$SWEEP" --scope
+has 'nothing changed since'; has 'nothing to debrief'; lacks '== DOC SWEEP SCOPE'; ok
+echo v8 >> README.md
+t "sweep: uncommitted work at the mark is reviewed from the mark" 0 bash "$SWEEP" --scope
+has "the last debrief's mark"; has 'README.md'; ok
+git checkout -q -- README.md
+
 repo sweep-legacy; mkdir -p docs .claude; printf -- '- [a.md](a.md): a doc for the legacy mark\n' > docs/_index.md; echo v0 > docs/a.md; commit base
 git rev-parse HEAD > .claude/last-doc-sweep; echo v1 >> docs/a.md; commit next
 t "sweep: the legacy .claude mark is still read" 0 bash "$SWEEP"
@@ -217,12 +255,12 @@ has 'UNJUDGED'; has '--mark refused'; has 'accept-unjudged'
 [ -f "$MARKFILE" ] && why "the mark was written anyway"; ok
 for id in $IDS; do echo "$id FIX done"; done | bash "$SWEEP" --verdicts - > /dev/null
 t "sweep: --mark passes once every finding is judged" 0 bash "$SWEEP" --mark
-has 'baseline marked'; [ -f "$MARKFILE" ] || why "no mark written"; ok
+has 'mark set at'; [ -f "$MARKFILE" ] || why "no mark written"; ok
 t "sweep: --mark ends the debrief, so its findings are gone" 3 bash "$SWEEP" --verdicts
 has '\(exit 3\)'; ok
 bash "$SWEEP" --base HEAD~1 > /dev/null
 t "sweep: the user's override marks with findings unjudged" 0 bash "$SWEEP" --mark --accept-unjudged
-has 'baseline marked'; ok
+has 'mark set at'; ok
 
 # ============================== the digest budget
 

@@ -25,12 +25,14 @@ Run it after any non-trivial code task. Doc edits are confirmed with you before 
 
 | Call | Does | Exit |
 |---|---|---|
-| `--scope [--base <rev>]` | picks the base and prints it with the commits and change stat since | 0; 1 outside git or for a bad `<rev>` |
+| `--scope [--base <rev>]` | picks the base and prints it with the commits, change stat, and untracked files since | 0; 1 outside git or for a bad `<rev>`; 3 nothing changed since the base; 4 no reliable base, so the agent asks for a range |
 | no flag | the sweep: a digest under 20 KB (`DOC_SWEEP_BUDGET`), findings first, each under an ID that stays the same across reruns; the full report at `.git/doc-sweep-report.txt` | 0; 1 with no `docs/` (`DOC_SWEEP_DIR` points elsewhere) |
 | `--verdicts [- \| <file>]` | adds `<ID> FIX\|JUSTIFY <reason>` lines (from stdin with `-`) to the debrief's verdicts, then refuses until every finding of the last sweep has one | 0; 2 names each unjudged finding; 3 no sweep yet |
 | `--mark` | records HEAD as the next debrief's base, and ends the debrief | 0; 2 refused while a finding of the last sweep has no verdict; `--accept-unjudged`, the user's override, marks anyway |
 
-The base is, in order: `--base`; the base `--scope` picked for this debrief; the last debrief's mark when it is an ancestor of HEAD; the merge-base with the default branch; `HEAD~5`. Step 1 and the sweep therefore read the same change, and a branch in a fresh worktree is compared from its branch point rather than its last five commits.
+The base is, in order: `--base`; the base `--scope` picked for this debrief; the last debrief's mark when it is an ancestor of HEAD; the merge-base with the default branch, when the branch has commits past it; HEAD, when the only changes are uncommitted; `HEAD~5`, which `--scope` refuses as a guess. Step 1 and the sweep therefore read the same change, and a branch in a fresh worktree is compared from its branch point rather than its last five commits.
+
+The change is everything since the base: commits, staged and unstaged edits, and untracked files. `git diff` leaves untracked files out, so `--scope` lists them and the agent reads each one. A debrief needs no commit first. The mark records HEAD, so work still uncommitted when the debrief marks shows up again in the next one.
 
 **State.** Everything lives in the git directory, never the working tree, so there is nothing to `.gitignore`. The mark is `doc-sweep-mark` in the common git dir, shared by every worktree; the base, the findings, the verdicts, and the full report are per worktree. `--scope` starts a debrief and clears the verdicts; `--mark` ends it and clears the base and verdicts. A mark left by the earlier version at `.claude/last-doc-sweep` is still read, and `--mark` says when it can be deleted.
 

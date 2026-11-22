@@ -21,7 +21,8 @@
 # Base, the first that applies: --base; the base --scope picked for this
 # debrief; the last debrief's mark when it is an ancestor of HEAD; the legacy
 # .claude/last-doc-sweep mark, likewise; the merge-base with the default
-# branch; HEAD~5.
+# branch, when HEAD has commits past it; HEAD, when the tree has uncommitted
+# changes; HEAD~5, which --scope refuses as a guess (exit 4).
 # State lives in the git directory, never the working tree: the mark in the
 # common dir, shared by every worktree; this worktree's base, findings,
 # verdicts, and full report in its own git dir. --scope starts a debrief, so
@@ -30,7 +31,9 @@
 # Exit: 0 report printed, or every finding judged; 1 setup (not a git repo,
 # no docs dir, bad --base, bad usage); 2 a finding has no verdict or a verdict
 # has no reason, from --verdicts or --mark; 3 --verdicts when no sweep has run
-# in this worktree. Each verdict result ends by naming its exit code.
+# in this worktree, or --scope when nothing changed since the base; 4 --scope
+# when the only base is the HEAD~5 guess. Each verdict and refusal names its
+# exit code.
 # NOTE: deliberately not `set -e`/pipefail — this is a report generator, and a
 # zero-match grep must never abort the remaining sections. Failures are handled
 # explicitly where they matter.
@@ -101,7 +104,7 @@ if [ "$MODE" = mark ]; then
   fi
   git rev-parse HEAD > "$MARK" || die "cannot write $MARK"
   rm -f "$PENDING" "$VERDICTS" "$FINDINGS"
-  echo "doc-sweep: baseline marked at $(cut -c1-12 "$MARK") in $MARK, shared by every worktree"
+  echo "doc-sweep: mark set at $(cut -c1-12 "$MARK") in $MARK, shared by every worktree"
   [ -f "$LEGACY" ] && echo "doc-sweep: $LEGACY is no longer needed; delete it and its .gitignore line"
   exit 0
 fi
@@ -126,7 +129,7 @@ default_branch() {
   r="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)" && { echo "$r"; return; }
   for r in origin/main origin/master main master; do is_commit "$r" && { echo "$r"; return; }; done
 }
-SKIPPED=""
+SKIPPED=""; GUESS=0
 resolve_base() {
   local m c db mb
   if [ -n "$ARG_BASE" ]; then
@@ -149,20 +152,41 @@ resolve_base() {
     mb="$(git merge-base HEAD "$db" 2>/dev/null)"
     if [ -n "$mb" ] && [ "$mb" != "$(git rev-parse HEAD)" ]; then BASE="$mb"; SRC="merge-base with $db"; return; fi
   fi
+  # No mark and no commits past the branch point: uncommitted work is the
+  # change; a clean tree leaves only a guess, which --scope refuses to use.
+  if dirty; then
+    BASE="$(git rev-parse HEAD)"
+    SRC="HEAD: no mark and no commits past the branch point, so only uncommitted changes are reviewed; pass --base <rev> to include earlier commits"
+    return
+  fi
   BASE="$(git rev-parse -q --verify HEAD~5 2>/dev/null || git rev-list --max-parents=0 HEAD | tail -1)"
-  SRC="FALLBACK HEAD~5: no mark and no branch point; run --mark after each debrief"
+  SRC="FALLBACK HEAD~5: no mark, no commits past the branch point, and a clean tree"; GUESS=1
 }
+dirty() { [ -n "$(git status --porcelain 2>/dev/null | head -1)" ]; }
 short() { printf '%s' "$1" | cut -c1-12; }
 
 # ---- --scope: Step 1's facts, and the base the sweep reuses
 if [ "$MODE" = scope ]; then
   resolve_base
+  rm -f "$VERDICTS" "$PENDING"
+  N="$(git rev-list --count "$BASE"..HEAD)"
+  if [ "$N" = 0 ] && ! dirty; then
+    echo "doc-sweep: nothing changed since $(short "$BASE") ($SRC): no commits, no uncommitted changes, no untracked files."
+    echo "doc-sweep: nothing to debrief; tell the user to commit or edit first, or to name a range for --base <rev> (exit 3)"
+    exit 3
+  fi
+  if [ "$GUESS" = 1 ]; then
+    echo "doc-sweep: no reliable base: no mark, no commits past the branch point, and a clean tree."
+    echo "doc-sweep: the last 5 commits would only be a guess; ask the user which range to review, then run --scope --base <rev> (exit 4)"
+    echo
+    echo "== RECENT COMMITS, to offer as a start =="
+    git log --oneline -10
+    exit 4
+  fi
   echo "$BASE" > "$PENDING"
-  rm -f "$VERDICTS"
   echo "== DOC SWEEP SCOPE =="
   echo "base: $(short "$BASE")  ($SRC)"
   [ -n "$SKIPPED" ] && echo "note: $SKIPPED"
-  N="$(git rev-list --count "$BASE"..HEAD)"
   echo
   echo "== COMMITS SINCE BASE ($N) =="
   git log --oneline "$BASE"..HEAD | head -30
@@ -170,10 +194,18 @@ if [ "$MODE" = scope ]; then
   echo
   echo "== CHANGE STAT, committed and uncommitted =="
   git diff --stat "$BASE" | tail -40
-  U="$(git ls-files --others --exclude-standard | head -20)"
-  [ -n "$U" ] && { echo; echo "== UNTRACKED FILES =="; echo "$U"; }
+  UL="$GITDIR/doc-sweep-untracked"
+  git ls-files --others --exclude-standard > "$UL"
+  NU="$(awk 'END { print NR }' "$UL")"
+  if [ "$NU" -gt 0 ]; then
+    echo; echo "== UNTRACKED FILES ($NU): not in git diff; Read each one =="
+    head -30 "$UL"
+    [ "$NU" -gt 30 ] && echo "(+$((NU - 30)) more, listed in $UL)"
+  fi
   echo
-  echo "== END SCOPE — read the change with: git diff $(short "$BASE"); the sweep in Step 5 reuses this base =="
+  READ="read the change with: git diff $(short "$BASE")"
+  [ "$NU" -gt 0 ] && READ="$READ, and Read the untracked files above"
+  echo "== END SCOPE — $READ; the sweep in Step 5 reuses this base =="
   exit 0
 fi
 
