@@ -11,12 +11,13 @@ Recorded runs that back the claims in the skill's README. Each case is a fixture
 | [0005](0005.md) | A change to code alone is found through the names the code dropped: the stale docs are findings | not yet run |
 | [0006](0006.md) | A rule the change adds that conflicts with an existing one is put to the user, who picks the resolution, and the debrief carries it out | not yet run |
 | [0007](0007.md) | With no reliable base and a user present, the agent asks for the range and debriefs the one it is given | not yet run |
+| [0008](0008.md) | In the session that did the work, the debrief reads docs from disk, greps the terms the session's decisions retired, takes a **Why:** from the user's words, and leaves nothing for a follow-up | not yet run |
 
 ## Not covered
 
 The README describes behavior no recorded run exercises yet:
 
-- A real session. Every arm starts fresh, so the debrief never follows the work in the same session: Step 2's rule to read from disk rather than memory, Step 5's terms retired only in chat, and the claim that a "be extra sure" follow-up finds nothing are unexercised.
+- A real session, beyond 0008. Every other arm starts fresh, so 0008 alone shows the debrief following its own work, on one task.
 - The question tool. Headless runs have no AskUserQuestion, so a question reaches the user as plain text that ends the turn. 0006 and 0007 answer theirs by resuming the session with a scripted reply; every other case takes the prompt's standing approval, so Step 3's confirmation and a deletion's own approval are answered by it.
 - The user's own setup: user-level `CLAUDE.md` (a rule such as committing only through a commit skill), git hooks, and signing are hidden from every arm.
 - Rules in `CLAUDE.md` or `AGENTS.md`, acronyms, and a renamed doc's broken links: in the sweep since the review, and covered by the repo's tests, but in no fixture.

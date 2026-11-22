@@ -17,6 +17,8 @@
 #         and its convention, against a rule that deletion reaches caches
 #         within 5 minutes; the arm runs in <dir>/lists and is answered.
 #   0007: builds 0004's repo; the arm is answered with the range to review.
+#   0008: builds 0004's repo; the arm does the task itself, then debriefs it in
+#         the same session.
 set -u
 CASE="${1:?case}"; DIR="${2:?dir}"
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
@@ -76,7 +78,7 @@ EOF
   exit 0
 fi
 
-if [ "$CASE" = 0003 ] || [ "$CASE" = 0004 ] || [ "$CASE" = 0007 ]; then
+if [ "$CASE" = 0003 ] || [ "$CASE" = 0004 ] || [ "$CASE" = 0007 ] || [ "$CASE" = 0008 ]; then
   mkdir -p "$DIR/ledger" && cd "$DIR/ledger" || exit 1
   git init -q -b main
   mkdir -p src docs/conventions docs/architecture
@@ -109,7 +111,7 @@ EOF
   # Unrelated work on main, which a HEAD~5 base would sweep in.
   for i in 1 2 3 4 5 6; do echo "- release note $i" >> README.md; c "chore: release note $i"; done
   git checkout -q -b feat/cents
-  { [ "$CASE" = 0004 ] || [ "$CASE" = 0007 ]; } && exit 0
+  { [ "$CASE" = 0004 ] || [ "$CASE" = 0007 ] || [ "$CASE" = 0008 ]; } && exit 0
   # The change, none of it committed: the code edit staged, the doc edit
   # unstaged, and the new rule in a file not yet added.
   printf "import { toCents } from './currency.js';\nexport const entry = (account, dollars) => ({ account, amount_cents: toCents(dollars) });\n" > src/ledger.js
