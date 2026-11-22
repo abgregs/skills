@@ -93,7 +93,7 @@ printf 'we still say zzheavy and lightword46 here, a summary.\n' > docs/b.md
 printf -- '- [a.md](a.md): the old words in a list\n- [b.md](b.md): a doc that still uses them\n' > docs/_index.md
 commit base; echo "new text only" > docs/a.md; commit change
 t "sweep: the cap keeps the most-removed term, whatever its letter" 0 bash "$SWEEP" --base HEAD~1
-has 'T-[0-9a-f]{4}  term: zzheavy'; has 'dropped by the cap of 40 \(7\)'; has 'dropped.*lightword46'; lacks 'term: lightword46'; ok
+has 'T-[0-9a-f]{4}  term: zzheavy'; has 'dropped by the caps of 40 doc and 200 code terms \(7\)'; has 'dropped.*lightword46'; lacks 'term: lightword46'; ok
 
 repo sweep-dup; mkdir -p docs
 printf -- '- [a.md](a.md): the doc that renames\n- [b.md](b.md): the doc that lags\n' > docs/_index.md
@@ -101,6 +101,67 @@ echo 'its folder is a `workspace` row' > docs/a.md; echo "a workspace can be arc
 echo 'its folder is a `folders` row' > docs/a.md; commit rename
 t "sweep: a term found as a phrase and as a word is one finding" 0 bash "$SWEEP" --base HEAD~1
 has 'term: workspace'; lacks 'T-[0-9a-f]{4}-2'; ok
+
+# A **Why:** records what a rule replaced, so it names the old term on purpose (the docs
+# contract asks for it); it must neither un-retire the term nor count as a stale use.
+repo sweep-why; mkdir -p docs
+printf -- '- [a.md](a.md): the doc that renames\n- [b.md](b.md): the doc that lags\n- [c.md](c.md): a rule and its Why on one line\n' > docs/_index.md
+echo 'its folder is a `workspace` row' > docs/a.md; echo "a workspace can be archived" > docs/b.md; echo 'a workspace has an owner. **Why:** a workspace replaced the team' > docs/c.md; commit base
+printf 'its folder is a `folders` row\n  **Why:** replaces the `workspace` table; reason not recorded.\n' > docs/a.md; commit rename
+t "sweep: a Why: line naming the old term does not hide a doc that still uses it" 0 bash "$SWEEP" --base HEAD~1
+has 'term: workspace'; has 'docs/b.md'; lacks 'docs/a.md:2'; ok
+printf 'a folder can be archived\n  **Why:** replaces workspace; reason not recorded.\n' > docs/b.md; commit lagging
+t "sweep: rule text before a Why: on the same line still counts as a use" 0 bash "$SWEEP" --base HEAD~2
+has 'term: workspace  \(1 hits\)'; has 'docs/c.md:1:'; lacks 'docs/b.md:[0-9]'; ok
+echo 'a folder has an owner. **Why:** a workspace replaced the team' > docs/c.md; commit fixed
+t "sweep: a term left only in Why: lines is history, not a finding" 0 bash "$SWEEP" --base HEAD~3
+lacks 'term: workspace'; ok
+
+# ============================== beyond changed doc lines
+# A change to code alone is the common case: names the code dropped are the only signal.
+repo sweep-code; mkdir -p docs src
+printf -- '- [a.md](a.md): the auth header\n' > docs/_index.md
+echo 'Send the session token in the `X-Session` header; `formatUser` shapes the reply.' > docs/a.md
+printf 'const t = req.headers["x-session"];\nconst user = lookupSession(t);\nexport const formatUser = (u) => u;\n' > src/auth.js; commit base
+printf 'const t = req.headers["authorization"];\nconst user = verifyAccessToken(t);\n' > src/auth.js
+echo 'export const formatUser = (u) => u;' > src/user.js; commit "code only"
+t "sweep: a name the code dropped and a doc still uses is a finding" 0 bash "$SWEEP" --base HEAD~1
+has 'term: x-session  \(1 hits\)  from the code diff'; has 'docs/a.md:1'; ok
+t "sweep: a name the code moved, not dropped, is not" 0 bash "$SWEEP" --base HEAD~1
+lacks 'term: formatUser'; lacks 'term: lookupSession'; ok
+# A refactor drops many names no doc uses; they must not take the doc terms' places in the cap.
+repo sweep-codecap; mkdir -p docs src
+printf -- '- [a.md](a.md): a doc that retires\n- [b.md](b.md): a doc still using it\n' > docs/_index.md
+echo "use the flibber cache" > docs/a.md; echo "the flibber cache also" > docs/b.md
+for i in $(seq 1 60); do echo "const old_name_$i = $i;"; done > src/old.js; commit base
+echo "use the store" > docs/a.md; echo "export {};" > src/old.js; commit "refactor"
+t "sweep: names from a large code diff leave the doc terms their cap" 0 bash "$SWEEP" --base HEAD~1
+has 'term: flibber'; has 'docs/b.md:1'; ok
+# A doc change that only deletes lines has no added words, which once emptied the candidates.
+repo sweep-delete; mkdir -p docs
+printf -- '- [a.md](a.md): a doc that loses a line\n- [b.md](b.md): a doc still using it\n' > docs/_index.md
+printf 'use the flibber cache\nkeep it warm\n' > docs/a.md; echo "the flibber cache also" > docs/b.md; commit base
+echo 'keep it warm' > docs/a.md; commit "delete a line"
+t "sweep: a change that only deletes doc lines still retires their words" 0 bash "$SWEEP" --base HEAD~1
+has 'term: flibber'; has 'docs/b.md:1'; ok
+repo sweep-short; mkdir -p docs
+printf -- '- [a.md](a.md): tokens\n- [b.md](b.md): signing\n- [c.md](c.md): secrets\n' > docs/_index.md
+echo 'Tokens are JWT.' > docs/a.md; echo 'Sign every JWT with the app key.' > docs/b.md; echo 'The jwtSecret is rotated monthly.' > docs/c.md; commit base
+echo 'Tokens are PASETO.' > docs/a.md; commit "short term"
+t "sweep: an acronym under four letters is a term, matched as a whole word" 0 bash "$SWEEP" --base HEAD~1
+has 'term: JWT'; has 'docs/b.md:1'; lacks 'docs/c.md:1'; ok
+repo sweep-rootdocs; mkdir -p docs
+printf -- '- [a.md](a.md): the flibber rule\n' > docs/_index.md
+echo "use the flibber cache" > docs/a.md; printf '# rules\n- Always warm the flibber cache; see docs/a.md.\n' > CLAUDE.md; commit base
+echo "use the store" > docs/a.md; commit retire
+t "sweep: CLAUDE.md is searched for retired terms and for referrers" 0 bash "$SWEEP" --base HEAD~1
+has 'CLAUDE.md:2:'; has 'R-[0-9a-f]{4}  CLAUDE.md names changed docs/a.md'; ok
+repo sweep-rename; mkdir -p docs
+printf -- '- [auth.md](auth.md): auth\n- [login.md](login.md): login\n- [old.md](old.md): old\n' > docs/_index.md
+echo "# Auth" > docs/auth.md; echo "See [auth](auth.md) and [old](old.md)." > docs/login.md; echo "# Old" > docs/old.md; commit base
+git mv docs/auth.md docs/authentication.md; git rm -q docs/old.md; commit "rename and delete"
+t "sweep: a doc that still names a renamed or deleted doc is a finding" 0 bash "$SWEEP" --base HEAD~1
+has 'docs/login.md names docs/auth.md, renamed to docs/authentication.md'; has 'docs/login.md names docs/old.md, deleted'; lacks 'names changed docs/old.md'; ok
 
 # ============================== stamps
 
@@ -190,8 +251,14 @@ has 'no longer needed'; ok
 t "sweep: a --base that is not a commit stops with exit 1" 1 bash "$SWEEP" --base nosuchrev
 has "is not a commit"; ok
 repo sweep-nodocs
-t "sweep: no docs dir stops with exit 1" 1 bash "$SWEEP"
-has "no 'docs' directory"; ok
+t "sweep: no docs dir, CLAUDE.md, or AGENTS.md stops with exit 1" 1 bash "$SWEEP"
+has "no 'docs' directory, CLAUDE.md, or AGENTS.md"; ok
+repo sweep-claudeonly; mkdir -p src
+printf '# rules\n- Every route reads the token from the `X-Session` header.\n' > CLAUDE.md
+echo 'const t = req.headers["x-session"];' > src/auth.js; commit base
+echo 'const t = req.headers["authorization"];' > src/auth.js; commit "code only"
+t "sweep: with no docs dir, CLAUDE.md alone is swept" 0 bash "$SWEEP" --base HEAD~1
+has 'term: x-session'; has 'CLAUDE.md:2:'; ok
 cd "$W/nogit" || exit 1
 t "sweep: outside a git repo stops with exit 1" 1 bash "$SWEEP"
 has 'not inside a git repository'; ok
@@ -240,10 +307,13 @@ t "sweep: a verdict with no reason is refused" 2 bash "$SWEEP" --verdicts "$W/v-
 has 'NO REASON'; ok
 for id in $IDS; do echo "- $id: FIX reworded b.md to the new store term"; done > "$W/v-full"
 t "sweep: every finding judged passes, the latest line for an ID winning" 0 bash "$SWEEP" --verdicts "$W/v-full"
-has 'all [0-9]+ findings judged'; ok
+has 'all [0-9]+ findings of this debrief judged'; ok
 t "sweep: --verdicts with nothing new rechecks the verdicts already given" 0 bash "$SWEEP" --verdicts
-has 'all [0-9]+ findings judged'; ok
+has 'all [0-9]+ findings of this debrief judged'; ok
 bash "$SWEEP" --scope --base HEAD~1 > /dev/null
+t "sweep: --scope starts a debrief, so the last debrief's findings are gone" 3 bash "$SWEEP" --verdicts
+has 'no sweep has run'; ok
+bash "$SWEEP" > /dev/null
 t "sweep: --scope starts a debrief, so earlier verdicts no longer count" 2 bash "$SWEEP" --verdicts
 has 'UNJUDGED'; ok
 FIRST_ID="$(printf '%s\n' $IDS | head -1)"
@@ -260,6 +330,25 @@ t "sweep: --mark ends the debrief, so its findings are gone" 3 bash "$SWEEP" --v
 has '\(exit 3\)'; ok
 bash "$SWEEP" --base HEAD~1 > /dev/null
 t "sweep: the user's override marks with findings unjudged" 0 bash "$SWEEP" --mark --accept-unjudged
+has 'mark set at'; ok
+
+# A finding one sweep raised and a later sweep no longer shows, because it was fixed or because
+# an edit hid it, still needs its verdict: the check covers the whole debrief, not the last sweep.
+repo sweep-cumulative; mkdir -p docs
+printf -- '- [a.md](a.md): a doc whose term retires\n- [b.md](b.md): a doc still using it\n' > docs/_index.md
+echo "use the flibber cache" > docs/a.md; echo "the flibber cache also" > docs/b.md; commit base
+echo "use the store" > docs/a.md; commit retire
+bash "$SWEEP" --scope --base HEAD~1 > /dev/null; bash "$SWEEP" > /dev/null
+TID="$(findings | cut -f1 | grep '^T-' | head -1)"
+echo "the store also" > docs/b.md
+t "sweep: a re-sweep names the findings it no longer shows" 0 bash "$SWEEP"
+lacks "^$TID"; has 'raised earlier still need a verdict'; ok
+t "sweep: a finding the re-sweep no longer raises still needs a verdict" 2 bash "$SWEEP" --verdicts "$W/v-empty"
+[ -n "$TID" ] || why "the fixture raised no T finding"; has "UNJUDGED   $TID"; ok
+t "sweep: --mark is refused for it too" 2 bash "$SWEEP" --mark
+has "UNJUDGED   $TID"; ok
+for id in $(findings | cut -f1); do echo "$id FIX reworded b.md"; done | bash "$SWEEP" --verdicts - > /dev/null
+t "sweep: --mark passes once every finding of the debrief is judged" 0 bash "$SWEEP" --mark
 has 'mark set at'; ok
 
 # ============================== the digest budget

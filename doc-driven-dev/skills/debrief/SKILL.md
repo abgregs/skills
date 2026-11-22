@@ -31,14 +31,14 @@ docs/
 
 ## The detector
 
-`bash <skill-base-dir>/scripts/doc-sweep.sh`, run from inside the project repo (the skill's base directory is announced when this skill loads). Enumeration is the script's job and judgment is yours: never re-derive by hand what it reports. It keeps its state in the repo's git directory, so nothing lands in the working tree, and every worktree shares the last debrief's mark.
+`bash <skill-base-dir>/scripts/doc-sweep.sh`, run from inside the project repo (the skill's base directory is announced when this skill loads). Enumeration is the script's job and judgment is yours: never re-derive by hand what it reports. It keeps its state in the repo's git directory, so nothing lands in the working tree, and every worktree shares the last debrief's mark. Write the script's full path in every call: the harness cannot check a command that runs a path held in a shell variable (`S=<path>; bash $S`), so it asks the user or refuses.
 
 | Call | When | Exit |
 |---|---|---|
 | `--scope [--base <rev>]` | Step 1: picks the base this debrief compares against, prints it with the commits, change stat, and untracked files since | 0; 1 when not in a git repo or `<rev>` is not a commit; 3 nothing changed since the base; 4 no reliable base |
-| no flag | Step 5 and Step 6: the sweep. A digest with the findings first, each under an ID, and the full report at the path it prints | 0; 1 when there is no `docs/` (set `DOC_SWEEP_DIR` when the docs live elsewhere) |
-| `--verdicts -` | Step 5 and Step 6: adds the verdict lines it reads on stdin to this debrief's, then checks every finding of the last sweep has one | 0 all judged; 2 a finding has no verdict or no reason, each named; 3 no sweep has run in this worktree |
-| `--mark` | the end: records HEAD as the next debrief's base | 0; 2 refused while a finding of the last sweep has no verdict, each named |
+| no flag | Step 5 and Step 6: the sweep. A digest with the findings first, each under an ID, and the full report at the path it prints | 0; 1 when there is no `docs/`, `CLAUDE.md`, or `AGENTS.md` (set `DOC_SWEEP_DIR` when the docs live elsewhere) |
+| `--verdicts -` | Step 5 and Step 6: adds the verdict lines it reads on stdin to this debrief's, then checks every finding of this debrief has one, including those a later sweep no longer shows | 0 all judged; 2 a finding has no verdict or no reason, each named; 3 no sweep has run in this worktree |
+| `--mark` | the end: records HEAD as the next debrief's base | 0; 2 refused while a finding of this debrief has no verdict, each named |
 
 Read every digest whole, never through `head`, `sed`, or `grep`. When it says it was cut, it names the sections it left out: read those in the full report it names. Every verdict result ends with its exit code in parentheses, so there is no need to echo `$?`.
 
@@ -109,8 +109,8 @@ For each approved change:
 ### Step 5: Doc health check — detector + judge
 
 1. **Run the sweep**: `doc-sweep.sh`. It diffs the docs from this debrief's base and reports, each finding under an ID:
-   - **T** retired terms: phrases and words on removed doc lines that no added line uses, with every place the corpus still uses them. Phrases come first, then the words removed most often; the digest names any the cap of 40 dropped, so grep those yourself when they matter.
-   - **R** referrers: unchanged docs that link a changed doc or repeat one of its headings.
+   - **T** retired terms: phrases, acronyms such as `JWT`, and words on removed doc lines, and the names and literals the code diff dropped, marked `from the code diff`, that no added line uses; with every place the docs, `CLAUDE.md`, and `AGENTS.md` still use them. A change to code alone is found through those names. Phrases and acronyms come first, then names from the code, then the words removed most often; the digest names any the cap of 40 dropped, so grep those yourself when they matter. Text from a **Why:** to the end of its line is history: it neither keeps a term alive nor counts as a use.
+   - **R** referrers: unchanged docs, `CLAUDE.md`, and `AGENTS.md` that link a changed doc or repeat one of its headings, or still name a doc the change renamed or deleted.
    - **F** freshness: an `Updated YYYY-MM-DD` stamp older than its file's last commit.
    - **S** structure in the docs this change touched: dead links, orphans, a folder with docs and no `_index.md`, an index entry with no summary, a file over the contract's limit.
 
@@ -124,7 +124,7 @@ For each approved change:
    EOF
    ```
 
-   A reason to keep a hit: a frozen artifact, a **Why:** clause recording history, or the same word in a different sense (a rule that bans "resets" legitimately contains the word). Make the fixes, with the user's confirmation for any that change a rule's substance.
+   A reason to keep a hit: a frozen artifact, or the same word in a different sense (a rule that bans "resets" legitimately contains the word). Make the fixes, with the user's confirmation for any that change a rule's substance.
 3. **Cover the detector's blind spots yourself:**
    (a) **session-decision terms**: vocabulary retired by THIS session's decisions that isn't on disk yet (a diff cannot see chat); grep the corpus for each;
    (b) **semantic staleness and absences**: read the two or three most-edited docs end to end, hunting for dead-model semantics written in fresh words and for missing entries (an incomplete list has no string to grep for);
@@ -157,4 +157,4 @@ Present a final summary:
 - Axis audited, with any coexistence findings
 - Any open items that need attention later
 
-When the debrief is complete, commit the doc fixes, then run `doc-sweep.sh --mark` so the next debrief's diff starts from here. When the code the fixes describe is itself uncommitted, leave the fixes beside it for the user to commit together, and mark anyway: the mark records HEAD, so the uncommitted changes come back in the next debrief. Say so in the summary. It refuses with exit 2 while a finding of the last sweep has no verdict: send the missing lines with `--verdicts -` and mark again. `--mark --accept-unjudged` sets the mark with findings unjudged; that is the user's call, so use it only when the user says to.
+When the debrief is complete, commit the doc fixes, staging only the doc paths this debrief edited, never `git add -A` or `.`, so other work in the tree stays out; then run `doc-sweep.sh --mark` so the next debrief's diff starts from here. When the code the fixes describe is itself uncommitted, leave the fixes beside it for the user to commit together, and mark anyway: the mark records HEAD, so the uncommitted changes come back in the next debrief. Say so in the summary. It refuses with exit 2 while a finding of this debrief has no verdict: send the missing lines with `--verdicts -` and mark again. `--mark --accept-unjudged` sets the mark with findings unjudged; that is the user's call, so use it only when the user says to.

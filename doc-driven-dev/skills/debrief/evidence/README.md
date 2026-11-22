@@ -4,19 +4,25 @@ Recorded runs that back the claims in the skill's README. Each case is a fixture
 
 | Case | Claim | Result |
 |---|---|---|
-| [0001](0001.md) | A branch in a fresh worktree is compared from its branch point, not its last five commits; the stale convention is fixed with a **Why:**, every finding is judged before the mark, and the fixes are committed before the mark lands where every worktree sees it | both runs: `--scope` picked the merge-base; `api-endpoints.md` rewritten from `X-Session` to the bearer header with a **Why:** reading `reason not recorded`; `--verdicts` exit 0, then commit, then `--mark` into the common git dir; nothing under `.claude/` |
-| [0002](0002.md) | When the user names the range, the agent passes it as `--base`, so a finding from before the range stays out | both runs: `--scope --base v1.2`; the sweep found only the post-tag `archived` term and one referrer, not v1.2's `workspace`; both handled, then commit and mark; every **Why:** reads `reason not recorded`, no cause supplied |
+| [0001](0001.md) | A branch in a fresh worktree is compared from its branch point, not its last five commits; an author's **Why:** naming the old header does not hide the stale convention, which is fixed with a **Why:**; every finding of the debrief is judged before the mark, and the fixes are committed before the mark lands where every worktree sees it | both runs: `--scope` picked the merge-base; `api-endpoints.md` rewritten from `X-Session` to the bearer header with a **Why:** reading `reason not recorded`; verdicts for every first-sweep ID, though the check then covered only the last sweep; then commit, then `--mark` into the common git dir; nothing under `.claude/`; on the earlier fixture, with no author's **Why:** line |
+| [0002](0002.md) | When the user names the range, the agent passes it as `--base`, so a finding from before the range stays out, and the doc commit leaves unrelated work in progress out | both runs: `--scope --base v1.2`; the sweep found only the post-tag `archived` term and one referrer, not v1.2's `workspace`; both handled, then commit and mark; every **Why:** reads `reason not recorded`, no cause supplied; on the earlier, clean tree, committed with `git add -A` |
 | [0003](0003.md) | Uncommitted work on a branch with no commits is reviewed from HEAD, not `HEAD~5`, and the untracked file is read | both runs: base HEAD; `src/currency.js` read, and its float-drift reason quoted in the new **Why:**; doc fixes left uncommitted beside the code, the mark set at HEAD, and both said so |
 | [0004](0004.md) | With no mark, no branch commits, and a clean tree, `--scope` refuses to guess and the agent stops for a range | both runs: exit 4, then a stop with no sweep, edit, or mark; a candidate range offered for the user to confirm, not taken |
+| [0005](0005.md) | A change to code alone is found through the names the code dropped: the stale docs are findings | not yet run |
+| [0006](0006.md) | A rule the change adds that conflicts with an existing one is put to the user, who picks the resolution, and the debrief carries it out | not yet run |
+| [0007](0007.md) | With no reliable base and a user present, the agent asks for the range and debriefs the one it is given | not yet run |
 
 ## Not covered
 
 The README describes behavior no recorded run exercises yet:
 
+- A real session. Every arm starts fresh, so the debrief never follows the work in the same session: Step 2's rule to read from disk rather than memory, Step 5's terms retired only in chat, and the claim that a "be extra sure" follow-up finds nothing are unexercised.
+- The question tool. Headless runs have no AskUserQuestion, so a question reaches the user as plain text that ends the turn. 0006 and 0007 answer theirs by resuming the session with a scripted reply; every other case takes the prompt's standing approval, so Step 3's confirmation and a deletion's own approval are answered by it.
+- The user's own setup: user-level `CLAUDE.md` (a rule such as committing only through a commit skill), git hooks, and signing are hidden from every arm.
+- Rules in `CLAUDE.md` or `AGENTS.md`, acronyms, and a renamed doc's broken links: in the sweep since the review, and covered by the repo's tests, but in no fixture.
 - A `--mark` refused for unjudged findings, and the `--accept-unjudged` override. Since the guard went in (batch 3), every run judged its findings before marking, so no run met the refusal; the refusal and the override are covered by the repo's tests.
 - A `--verdicts` exit 2 that the agent then clears: no run sent an incomplete set.
 - `--scope` exit 3, nothing changed since the base: covered by the tests, not by a run.
-- Exit 4 with a user to ask. Every arm runs headless, so 0004 shows the stop, not the question or the debrief after the user's answer.
 - The axis audit finding a bad composition, and its AskUserQuestion: the fixtures' axes hold no conflict.
 - Step 3's confirmation: the prompt approves every recommended update, so no run shows the question or a user's edit to the proposal.
 - A cut digest, `F` freshness findings, and `S` findings in a touched doc. The cases' digests were 0.5 to 1.9 KB, and no fixture has a stamp or a fault in a changed doc; each is covered by the repo's tests.
@@ -61,3 +67,15 @@ Batches 1 to 4 ran on earlier states of this version. A first start of batch 1 w
 | 5 | `5edc0cb8ebd7` | 0002's agent wrote a **Why:** with a cause no file states, and the skill did not say where a **Why:**'s reason must come from; the docs contract now does. 0003 left its fixes uncommitted beside the uncommitted code and did not mark; Step 6 now says to leave them there and mark anyway. 0004 took the standing approval as leave to pick a range itself. |
 | 6 | `2e47c7b601cb` | Every **Why:** was sourced or read `reason not recorded`, and 0004 stopped at exit 4. 0001 left its fixes uncommitted although its code was committed, and did not mark: Step 6's new sentence on uncommitted code had made commit-then-mark read as the exception. Step 6 now states commit, then mark, as the rule, and the uncommitted case after it. |
 | 7 | `243a4a301264` | The current runs, two per case. Every case passed in both. The same batch ran a copy of the three skills reworded to Simplified Technical English: one instruction per sentence, the condition before the action, no parentheticals, sentences of at most 25 words. Brief and setup-docs tied with the current wording. In debrief, all four reworded runs of 0001 and 0002 left committed-code fixes uncommitted, where all four runs here committed and marked: the rewording had split Step 6 into two equal cases, and the agents took the uncommitted one. The reworded copy was not adopted. |
+
+**Review after batch 7.** An adversarial review of the method, with each finding reproduced, found the runs passing where real use would not:
+
+- The sweep counted **Why:** lines as added lines, so a **Why:** naming the old term, which the docs contract asks for, hid every stale use of it. 0001's branch now writes such a line, and the sweep no longer counts **Why:** text either way.
+- `--verdicts` and `--mark` checked only the last sweep. In 5 of the 6 runs of 0001 to 0003 the verdicts came after a clean re-sweep, so the check judged nothing. They now cover every finding of the debrief.
+- 7 of the 9 doc commits used `git add -A`, harmless only because every fixture's tree was clean apart from the docs. Step 6 now stages only the doc paths the debrief edited, and 0002 has unrelated work in progress.
+- Every fixture edited a doc in the change, so none showed that a change to code alone gave the sweep nothing. The sweep now takes the names and literals the code dropped as terms, which finds 0005's two stale docs in its dry run. It also reads `CLAUDE.md` and `AGENTS.md`, counts acronyms such as `JWT`, and names the docs that still point at a renamed or deleted doc.
+- Prompts named the change for the agent; 0001 and 0003 now run on a bare `/debrief`.
+- The standing approval answered every question, so no run showed one reaching a user; 0006 and 0007 are answered instead.
+- 29 of the 31 harness refusals in batch 7 were a script path held in a shell variable; SKILL.md now says to write the full path.
+
+The next batch records Opus, the model the skills are used with, rather than Sonnet.

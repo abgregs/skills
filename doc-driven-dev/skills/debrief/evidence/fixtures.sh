@@ -11,13 +11,72 @@
 #         change uncommitted: a staged code edit, an unstaged doc edit, and an
 #         untracked file holding the new rule; the arm runs in <dir>/ledger.
 #   0004: builds <dir>/ledger the same way, with a clean tree and no change.
+#   0005: builds 0001's repo, but the branch changes code only: auth.md is
+#         left as it was on main, so no doc line changes.
+#   0006: builds <dir>/lists on a branch that adds a 10-minute per-user cache
+#         and its convention, against a rule that deletion reaches caches
+#         within 5 minutes; the arm runs in <dir>/lists and is answered.
+#   0007: builds 0004's repo; the arm is answered with the range to review.
 set -u
 CASE="${1:?case}"; DIR="${2:?dir}"
 export GIT_AUTHOR_NAME=fixture GIT_AUTHOR_EMAIL=fixture@example.invalid
 export GIT_COMMITTER_NAME=fixture GIT_COMMITTER_EMAIL=fixture@example.invalid
 c() { git add -A && git commit -qm "$1"; }
 
-if [ "$CASE" = 0003 ] || [ "$CASE" = 0004 ]; then
+if [ "$CASE" = 0006 ]; then
+  mkdir -p "$DIR/lists" && cd "$DIR/lists" || exit 1
+  git init -q -b main
+  mkdir -p src/routes docs/conventions docs/architecture
+  printf '# lists\n\nA reading-list API. Node 22, plain ES modules.\n\n## Workflow\nAfter a code task, run /debrief.\n' > CLAUDE.md
+  cat > docs/_index.md <<'EOF'
+# lists docs
+
+- [conventions/](conventions/_index.md): how code is written here
+- [architecture/](architecture/_index.md): how the system fits together and why
+
+## Cross-cutting axes
+- data lifecycle: how user data is kept, copied, and deleted · last audited: never
+EOF
+  printf '# Conventions\n\n- [api-endpoints.md](api-endpoints.md): route layout and response shape\n' > docs/conventions/_index.md
+  printf '# API endpoints\n\n- One file per resource in `src/routes/`.\n- Responses are bare JSON arrays or objects.\n' > docs/conventions/api-endpoints.md
+  printf '# Architecture\n\n- [data-lifecycle.md](data-lifecycle.md): where user data lives and how it is deleted\n' > docs/architecture/_index.md
+  cat > docs/architecture/data-lifecycle.md <<'EOF'
+# Data lifecycle
+
+- Account deletion removes every copy of a user's data within 5 minutes, caches included.
+  **Why:** the privacy policy promises five minutes, and a regulator asked to see the proof.
+- A new copy of user data is listed here before it ships.
+EOF
+  printf 'export const getLists = async (req, db) => db.query("select * from lists where user_id = ?", [req.user.id]);\n' > src/routes/lists.js
+  printf 'export const deleteAccount = async (userId, db) => db.query("delete from users where id = ?", [userId]);\n' > src/accounts.js
+  c "lists: routes and accounts"
+  git checkout -q -b feat/list-cache
+  cat > src/cache.js <<'EOF'
+// Per-user cache for GET /lists: the list query was 70% of p95 latency.
+const store = new Map();
+export const TTL_MS = 10 * 60 * 1000;
+export const cached = async (key, load) => {
+  const hit = store.get(key);
+  if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
+  const value = await load();
+  store.set(key, { value, at: Date.now() });
+  return value;
+};
+EOF
+  printf 'import { cached } from "../cache.js";\nexport const getLists = async (req, db) => cached(`user:${req.user.id}:lists`, () => db.query("select * from lists where user_id = ?", [req.user.id]));\n' > src/routes/lists.js
+  c "feat(lists): cache GET /lists per user"
+  printf -- '- [caching.md](caching.md): what is cached, for how long, and under which key\n' >> docs/conventions/_index.md
+  cat > docs/conventions/caching.md <<'EOF'
+# Caching
+
+- Cache `GET /lists` per user for 10 minutes, keyed `user:<id>:lists`.
+  **Why:** the list query was 70% of p95 latency.
+EOF
+  c "docs(caching): document the list cache"
+  exit 0
+fi
+
+if [ "$CASE" = 0003 ] || [ "$CASE" = 0004 ] || [ "$CASE" = 0007 ]; then
   mkdir -p "$DIR/ledger" && cd "$DIR/ledger" || exit 1
   git init -q -b main
   mkdir -p src docs/conventions docs/architecture
@@ -50,7 +109,7 @@ EOF
   # Unrelated work on main, which a HEAD~5 base would sweep in.
   for i in 1 2 3 4 5 6; do echo "- release note $i" >> README.md; c "chore: release note $i"; done
   git checkout -q -b feat/cents
-  [ "$CASE" = 0004 ] && exit 0
+  { [ "$CASE" = 0004 ] || [ "$CASE" = 0007 ]; } && exit 0
   # The change, none of it committed: the code edit staged, the doc edit
   # unstaged, and the new rule in a file not yet added.
   printf "import { toCents } from './currency.js';\nexport const entry = (account, dollars) => ({ account, amount_cents: toCents(dollars) });\n" > src/ledger.js
@@ -93,6 +152,7 @@ EOF
 - Archived notes stay searchable.
 EOF
   printf 'export const archive = (note) => ({ ...note, archived_at: Date.now() });\n' > src/notes.js
+  printf 'export const search = (notes, q) => notes.filter((n) => n.body.includes(q));\n' > src/search.js
   c "notes: storage and states"
   # The debrief after that commit left its mark here.
   git rev-parse HEAD > .git/doc-sweep-mark
@@ -113,10 +173,14 @@ EOF
   c "docs(storage): trash replaces archive"
   printf '// trash purge runs nightly\n' >> src/notes.js
   c "feat(notes): purge trashed notes after 30 days"
+  # Unrelated work in progress, which a doc commit must leave out: an unstaged
+  # edit to a tracked file and a scratch file not yet added.
+  printf '// WIP: match tags as well as the body\n' >> src/search.js
+  printf '# scratch\n\n- try tag search with a prefix index\n' > scratch.md
   exit 0
 fi
 
-[ "$CASE" = 0001 ] || { echo "unknown case $CASE"; exit 1; }
+[ "$CASE" = 0001 ] || [ "$CASE" = 0005 ] || { echo "unknown case $CASE"; exit 1; }
 mkdir -p "$DIR/shelf" && cd "$DIR/shelf" || exit 1
 git init -q -b main
 
@@ -181,10 +245,15 @@ export function authenticate(req) {
 }
 function verifyAccessToken(token) { return { id: token.slice(0, 8) }; }
 EOF
-cat > docs/architecture/auth.md <<'EOF'
+# 0005 stops short of the doc edit: the change is code only.
+if [ "$CASE" = 0001 ]; then
+  # The author records the replacement as the docs contract asks, naming the old header.
+  cat > docs/architecture/auth.md <<'EOF'
 # Auth
 
 `/login` issues a signed access token that expires after 15 minutes.
 `src/auth.js` reads the access token from `Authorization: Bearer <token>` on every request.
+**Why:** replaces the 30-day server-side session token sent in `X-Session`: a leaked session token stayed valid for a month.
 EOF
+fi
 c "feat(auth): replace session tokens with bearer access tokens"

@@ -3,17 +3,17 @@
 # Detector half of detector+judge: enumerates candidate findings with high
 # recall, each under an ID; the model judges each one (FIX or JUSTIFY) and
 # covers the blind spots (session-only decisions, semantic staleness,
-# absences). --verdicts is the wall that refuses a summary while a finding of
-# the last sweep has no verdict.
+# absences). --verdicts is the wall that refuses a summary while a finding
+# raised by any sweep of this debrief has no verdict.
 #
 # Usage (from anywhere inside the project repo):
 #   doc-sweep.sh --scope [--base <rev>]   Step 1: pick the base, print it and the change stat
 #   doc-sweep.sh [--base <rev>]           the sweep: digest on stdout, full report in a file
 #   doc-sweep.sh --verdicts [- | <file>]  add verdicts (from stdin with -), then check every
-#                                         finding of the last sweep has one
+#                                         finding of this debrief has one
 #   doc-sweep.sh --mark [--accept-unjudged]
 #                                         record HEAD as the next debrief's base; refused
-#                                         while a finding of the last sweep has no verdict,
+#                                         while a finding of this debrief has no verdict,
 #                                         unless the user accepts it unjudged
 #   DOC_SWEEP_DIR=docs                    docs root (default: docs)
 #   DOC_SWEEP_BUDGET=20000                digest size cap in bytes
@@ -26,7 +26,9 @@
 # State lives in the git directory, never the working tree: the mark in the
 # common dir, shared by every worktree; this worktree's base, findings,
 # verdicts, and full report in its own git dir. --scope starts a debrief, so
-# it clears the verdicts; --mark ends one and clears the base and verdicts.
+# it clears the findings and verdicts; every sweep adds its findings to this
+# debrief's, so a finding a later sweep no longer sees still needs a verdict;
+# --mark ends the debrief and clears the base, findings, and verdicts.
 #
 # Exit: 0 report printed, or every finding judged; 1 setup (not a git repo,
 # no docs dir, bad --base, bad usage); 2 a finding has no verdict or a verdict
@@ -42,6 +44,9 @@ set -u
 DOCS_DIR="${DOC_SWEEP_DIR:-docs}"
 BUDGET="${DOC_SWEEP_BUDGET:-20000}"
 MAX_TERMS=40
+# Names from the code diff have a cap of their own: most never appear in a doc, so they must
+# not take the doc terms' places, and each costs only a grep.
+MAX_CODE_TERMS=200
 DIGEST_HITS=8
 REPORT_HITS=50
 
@@ -72,7 +77,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-# ---- the verdict check: every finding of the last sweep needs '<ID> FIX|JUSTIFY <reason>'.
+# ---- the verdict check: every finding of this debrief needs '<ID> FIX|JUSTIFY <reason>'.
 # Lines from every --verdicts call of this debrief count; the latest line for an ID wins.
 check_verdicts() {
   touch "$VERDICTS"
@@ -90,9 +95,9 @@ check_verdicts() {
       if (!($1 in seen))   { print "UNJUDGED   " $1 "  " $2; bad++ }
       else if (!reason[$1]) { print "NO REASON  " $1 "  the verdict must say what changed or why it stays"; bad++ } }
     END {
-      if (n == 0) print "doc-sweep: the last sweep has no findings; nothing to judge (exit 0)"
-      else if (bad) printf "doc-sweep: %d of %d findings lack a verdict; send one line per ID above with --verdicts - (exit 2)\n", bad, n
-      else printf "doc-sweep: all %d findings judged (exit 0)\n", n
+      if (n == 0) print "doc-sweep: no sweep of this debrief raised a finding; nothing to judge (exit 0)"
+      else if (bad) printf "doc-sweep: %d of the %d findings of this debrief lack a verdict; send one line per ID above with --verdicts - (exit 2)\n", bad, n
+      else printf "doc-sweep: all %d findings of this debrief judged (exit 0)\n", n
       exit (bad ? 2 : 0)
     }' "$FINDINGS"
 }
@@ -168,7 +173,7 @@ short() { printf '%s' "$1" | cut -c1-12; }
 # ---- --scope: Step 1's facts, and the base the sweep reuses
 if [ "$MODE" = scope ]; then
   resolve_base
-  rm -f "$VERDICTS" "$PENDING"
+  rm -f "$VERDICTS" "$PENDING" "$FINDINGS"
   N="$(git rev-list --count "$BASE"..HEAD)"
   if [ "$N" = 0 ] && ! dirty; then
     echo "doc-sweep: nothing changed since $(short "$BASE") ($SRC): no commits, no uncommitted changes, no untracked files."
@@ -210,7 +215,8 @@ if [ "$MODE" = scope ]; then
 fi
 
 # ---- the sweep
-[ -d "$DOCS_DIR" ] || die "no '$DOCS_DIR' directory here; set DOC_SWEEP_DIR to the docs root"
+# With no docs folder, the rules in CLAUDE.md or AGENTS.md are still worth a sweep.
+[ -d "$DOCS_DIR" ] || [ -f CLAUDE.md ] || [ -f AGENTS.md ] || die "no '$DOCS_DIR' directory, CLAUDE.md, or AGENTS.md here; set DOC_SWEEP_DIR to the docs root"
 resolve_base
 
 TMP="$(mktemp -d)"
@@ -228,42 +234,76 @@ finding() {
   LAST_ID="$id"
 }
 
-git diff "$BASE" -- "$DOCS_DIR" > "$TMP/diff" || true
+# Root instruction files hold rules too, so they are diffed and searched with the docs.
+ROOTDOCS=""; for f in CLAUDE.md AGENTS.md; do [ -f "$f" ] && ROOTDOCS="$ROOTDOCS $f"; done
+git diff "$BASE" -- "$DOCS_DIR" $ROOTDOCS > "$TMP/diff" || true
+# The code diff: a name or literal the code dropped is retired when no added line, code or
+# doc, still uses it; this is what a change to code alone gives the sweep to work from.
+git diff "$BASE" -- . ":(exclude)$DOCS_DIR" ':(exclude)*.md' > "$TMP/cdiff" || true
+grep '^-' "$TMP/cdiff" 2>/dev/null | grep -v '^---' | sed 's/^-//' > "$TMP/cremoved" || true
+grep '^+' "$TMP/cdiff" 2>/dev/null | grep -v '^+++' | sed 's/^+//' > "$TMP/cadded" || true
 grep '^-' "$TMP/diff" 2>/dev/null | grep -v '^---' | sed 's/^-//' > "$TMP/removed" || true
-grep '^+' "$TMP/diff" 2>/dev/null | grep -v '^+++' | sed 's/^+//' > "$TMP/added"   || true
+# Text from **Why:** to the end of its line records what a rule replaced, so it names old terms
+# on purpose: it neither keeps a term alive on an added line nor counts as a stale use below.
+grep '^+' "$TMP/diff" 2>/dev/null | grep -v '^+++' | sed 's/^+//; s/\*\*Why:\*\*.*//' > "$TMP/added" || true
 
-# ---- 1. retired-term candidates: phrases and words on removed lines that no added line uses,
-# phrases first, then words by how often they were removed, so the cap keeps the strongest
+# ---- 1. retired-term candidates: phrases and words on removed lines that no added line uses:
+# doc phrases, then short terms, then names from the code diff, then doc words by how often they
+# were removed, so the cap keeps the strongest
 STOPWORDS='the|this|that|with|from|have|been|would|could|should|their|they|than|then|when|where|which|while|will|into|only|over|after|before|every|each|more|most|some|such|also|does|must|never|once|both|under|between|because|about|other|these|those|there|here|still|just|like|make|made|makes|note|docs|file|files|line|lines|what|whose|your|them|were|much|many|very|same|table|section|example|rule|rules'
 tokens() { tr -cs '[:alnum:]' '\n' < "$1" | tr '[:upper:]' '[:lower:]' | awk 'length($0)>=4 && /[a-z]/' | grep -Evw "$STOPWORDS" | sort | uniq -c; }
 tokens "$TMP/removed" > "$TMP/rw" || true
 tokens "$TMP/added" | awk '{ print $2 }' > "$TMP/aw" || true
-awk 'NR == FNR { a[$1]; next } !($2 in a) { print $1, $2 }' "$TMP/aw" "$TMP/rw" | sort -k1,1nr -k2,2 | awk '{ print $2 }' > "$TMP/cand_words"
+awk 'FILENAME == ARGV[1] { a[$1]; next } !($2 in a) { print $1, $2 }' "$TMP/aw" "$TMP/rw" | sort -k1,1nr -k2,2 | awk '{ print $2 }' > "$TMP/cand_words"
 
-{ grep -o '`[^`]\{4,48\}`'       "$TMP/removed" 2>/dev/null | tr -d '`'  || true
+{ grep -o '`[^`]\{2,48\}`'       "$TMP/removed" 2>/dev/null | tr -d '`'  || true
   grep -o '"[^"]\{4,48\}"'       "$TMP/removed" 2>/dev/null | tr -d '"'  || true
   grep -o '\*\*[^*]\{4,48\}\*\*' "$TMP/removed" 2>/dev/null | sed 's/\*//g' || true
 } | sort -u > "$TMP/cand_phrases_all"
 : > "$TMP/cand_phrases"
 while IFS= read -r p; do
-  grep -Fqi -- "$p" "$TMP/added" || echo "$p" >> "$TMP/cand_phrases"
+  if [ ${#p} -lt 4 ]; then grep -Fqiw -- "$p" "$TMP/added"; else grep -Fqi -- "$p" "$TMP/added"; fi || echo "$p" >> "$TMP/cand_phrases"
 done < "$TMP/cand_phrases_all"
+# Short terms: acronyms of three to six capitals (JWT, OAUTH), which the word list skips.
+: > "$TMP/cand_short"
+tr -cs '[:alnum:]' '\n' < "$TMP/removed" | grep -E '^[A-Z][A-Z0-9][A-Z0-9][A-Z0-9]?[A-Z0-9]?[A-Z0-9]?$' | sort -u | while IFS= read -r p; do
+  grep -Fqiw -- "$p" "$TMP/added" || echo "$p" >> "$TMP/cand_short"
+done
+# Names from the code diff: string literals, and identifiers in snake_case, kebab-case, or camelCase.
+cat "$TMP/added" "$TMP/cadded" > "$TMP/alladded"
+{ grep -oE '"[^"]{3,48}"' "$TMP/cremoved" 2>/dev/null | tr -d '"' || true
+  grep -oE "'[^']{3,48}'" "$TMP/cremoved" 2>/dev/null | tr -d "'" || true
+  grep -oE '[A-Za-z][A-Za-z0-9]*([_-][A-Za-z0-9]+)+' "$TMP/cremoved" 2>/dev/null || true
+  grep -oE '[a-z][a-z0-9]*[A-Z][A-Za-z0-9]*' "$TMP/cremoved" 2>/dev/null || true
+} | sed 's/^ *//; s/ *$//' | grep '[A-Za-z]' | awk 'length($0) >= 3' | sort -u > "$TMP/code_all"
+: > "$TMP/cand_code"
+while IFS= read -r p; do
+  if [ ${#p} -lt 4 ]; then grep -Fqiw -- "$p" "$TMP/alladded"; else grep -Fqi -- "$p" "$TMP/alladded"; fi || echo "$p" >> "$TMP/cand_code"
+done < "$TMP/code_all"
 
 # A backticked word is also a word: keep its first appearance only.
-cat "$TMP/cand_phrases" "$TMP/cand_words" | awk 'NF && !seen[tolower($0)]++' > "$TMP/cand_all"
-head -n "$MAX_TERMS" "$TMP/cand_all" > "$TMP/terms"
-tail -n +"$((MAX_TERMS + 1))" "$TMP/cand_all" > "$TMP/dropped"
-NCAND="$(wc -l < "$TMP/cand_all" | tr -d ' ')"
+cat "$TMP/cand_phrases" "$TMP/cand_short" "$TMP/cand_words" | awk 'NF && !seen[tolower($0)]++' > "$TMP/cand_doc"
+# Terms only the code diff gave, labelled so a doc reader looks for them in the code.
+tr '[:upper:]' '[:lower:]' < "$TMP/cand_doc" > "$TMP/doc_terms"
+awk 'FILENAME == ARGV[1] { d[$0]; next } !(tolower($0) in d) && !seen[tolower($0)]++' "$TMP/doc_terms" "$TMP/cand_code" > "$TMP/code_only"
+{ head -n "$MAX_TERMS" "$TMP/cand_doc"; head -n "$MAX_CODE_TERMS" "$TMP/code_only"; } > "$TMP/terms"
+{ tail -n +"$((MAX_TERMS + 1))" "$TMP/cand_doc"; tail -n +"$((MAX_CODE_TERMS + 1))" "$TMP/code_only"; } > "$TMP/dropped"
+NCAND="$(cat "$TMP/cand_doc" "$TMP/code_only" | wc -l | tr -d ' ')"
 NTERMS="$(wc -l < "$TMP/terms" | tr -d ' ')"
 NDROP="$(wc -l < "$TMP/dropped" | tr -d ' ')"
 
 : > "$TMP/s1d"; : > "$TMP/s1r"
 while IFS= read -r t; do
-  grep -rni --include='*.md' -F -- "$t" "$DOCS_DIR" 2>/dev/null | cut -c1-200 > "$TMP/hits" || true
+  # A short term matches as a whole word only, so `api` does not match "rapid".
+  WORD=""; [ ${#t} -lt 4 ] && WORD=-w
+  grep -rniH --include='*.md' -F $WORD -- "$t" "$DOCS_DIR" $ROOTDOCS 2>/dev/null \
+    | awk -v t="$t" '{ s = $0; i = index(s, "**Why:**"); if (i) s = substr(s, 1, i - 1); if (index(tolower(s), tolower(t))) print }' \
+    | cut -c1-200 > "$TMP/hits" || true
   n="$(wc -l < "$TMP/hits" | tr -d ' ')"
   [ "$n" -gt 0 ] || continue
   finding T "term:$t" "term '$t' is still used $n times, first at $(head -1 "$TMP/hits" | cut -d: -f1-2)"
-  printf '%s  term: %s  (%s hits)\n' "$LAST_ID" "$t" "$n" | tee -a "$TMP/s1r" >> "$TMP/s1d"
+  FROM=""; grep -qxF -- "$t" "$TMP/code_only" && FROM="  from the code diff"
+  printf '%s  term: %s  (%s hits)%s\n' "$LAST_ID" "$t" "$n" "$FROM" | tee -a "$TMP/s1r" >> "$TMP/s1d"
   head -n "$DIGEST_HITS" "$TMP/hits" | sed 's/^/    /' >> "$TMP/s1d"
   [ "$n" -gt "$DIGEST_HITS" ] && echo "    (+$((n - DIGEST_HITS)) more in the full report)" >> "$TMP/s1d"
   head -n "$REPORT_HITS" "$TMP/hits" | sed 's/^/    /' >> "$TMP/s1r"
@@ -273,8 +313,9 @@ done < "$TMP/terms"
 { git diff --name-only "$BASE" -- "$DOCS_DIR"; git ls-files --others --exclude-standard -- "$DOCS_DIR"; } | sort -u | awk 'NF' > "$TMP/changed"
 : > "$TMP/s2"
 while IFS= read -r f; do
+  [ -e "$f" ] || continue   # a deleted doc's referrers are found below, with what became of it
   b="$(basename "$f")"
-  grep -rl --include='*.md' -F -- "$b" "$DOCS_DIR" 2>/dev/null | grep -vxF -f "$TMP/changed" | while IFS= read -r ref; do
+  grep -rl --include='*.md' -F -- "$b" "$DOCS_DIR" $ROOTDOCS 2>/dev/null | grep -vxF -f "$TMP/changed" | while IFS= read -r ref; do
     finding R "ref:$f:$ref" "$ref names $f, which changed; check it for lag"
     echo "$LAST_ID  $ref names changed $f" >> "$TMP/s2"
   done
@@ -287,6 +328,15 @@ while IFS= read -r f; do
     done
   done
 done < "$TMP/changed"
+# A doc the change renamed or deleted: every unchanged doc that still names its old path.
+git diff --name-status -M "$BASE" -- "$DOCS_DIR" 2>/dev/null | awk -F'\t' '$1 ~ /^R/ { print $2 "\t" $3 } $1 == "D" { print $2 "\t" }' > "$TMP/gone"
+while IFS="$(printf '\t')" read -r old new; do
+  if [ -n "$new" ]; then what="renamed to $new"; else what="deleted"; fi
+  grep -rl --include='*.md' -F -- "$(basename "$old")" "$DOCS_DIR" $ROOTDOCS 2>/dev/null | grep -vxF -f "$TMP/changed" | while IFS= read -r ref; do
+    finding R "gone:$old:$ref" "$ref names $old, which this change $what"
+    echo "$LAST_ID  $ref names $old, $what" >> "$TMP/s2"
+  done
+done < "$TMP/gone"
 
 # ---- 3. freshness: an 'Updated YYYY-MM-DD' stamp older than its file's last commit
 : > "$TMP/s3"
@@ -351,7 +401,7 @@ structure_faults() {
 # ---- 4. structure: a fault in a doc (or the folder of a doc) changed since the base
 # is a finding of this debrief; faults elsewhere stand, listed without IDs.
 : > "$TMP/s4"
-structure_faults "$DOCS_DIR" > "$TMP/faults"
+if [ -d "$DOCS_DIR" ]; then structure_faults "$DOCS_DIR" > "$TMP/faults"; else : > "$TMP/faults"; fi
 # getline, not NR == FNR: an empty changed list would make awk read the faults as the list.
 awk -v chf="$TMP/changed" 'BEGIN { while ((getline c < chf) > 0) { ch[c] = 1; d = c; sub(/\/[^\/]*$/, "", d); dir[d] = 1 } }
   { f = ""
@@ -373,23 +423,30 @@ NSTANDING="$(wc -l < "$TMP/standing" | tr -d ' ')"
 grep -n -iE 'last audited:' "$DOCS_DIR/_index.md" 2>/dev/null > "$TMP/axes" || true
 
 # Two findings with one key would share an ID; number the repeats.
-awk -F'\t' 'BEGIN { OFS = "\t" } { c[$1]++; if (c[$1] > 1) $1 = $1 "-" c[$1]; print }' "$F" > "$FINDINGS"
+awk -F'\t' 'BEGIN { OFS = "\t" } { c[$1]++; if (c[$1] > 1) $1 = $1 "-" c[$1]; print }' "$F" > "$TMP/this"
+# This debrief's findings: an ID is stable across sweeps, so a repeat is one finding, and one
+# a later sweep no longer raises (fixed, or hidden by an edit) still needs its verdict.
+touch "$FINDINGS"
+awk -F'\t' 'FILENAME == ARGV[1] { had[$1]; print; next } !($1 in had)' "$FINDINGS" "$TMP/this" > "$TMP/all" && cat "$TMP/all" > "$FINDINGS"
+NTHIS="$(awk 'END { print NR }' "$TMP/this")"; NALL="$(awk 'END { print NR }' "$FINDINGS")"
 # The section files carry the unnumbered IDs; renumber repeats there the same way.
 for s in s1d s1r s2 s3 s4; do
   awk '{ if (match($0, /^[TRFS]-[0-9a-f]+/)) { id = substr($0, 1, RLENGTH); c[id]++; if (c[id] > 1) $0 = id "-" c[id] substr($0, RLENGTH + 1) } print }' "$TMP/$s" > "$TMP/$s.n"
 done
-count() { grep -c "^$1-" "$FINDINGS" | tr -d ' '; }
+count() { grep -c "^$1-" "$TMP/this" | tr -d ' '; }
 
 # ---- assemble the digest and the full report
 both "== DOC SWEEP =="
 both "base: $(short "$BASE")  ($SRC)"
 [ -n "$SKIPPED" ] && both "note: $SKIPPED"
-both "docs: $DOCS_DIR   doc lines changed since base: -$(wc -l < "$TMP/removed" | tr -d ' ') +$(wc -l < "$TMP/added" | tr -d ' ')   full report: $REPORT"
+SWEPT="$DOCS_DIR"; [ -d "$DOCS_DIR" ] || SWEPT="no $DOCS_DIR folder"; [ -n "$ROOTDOCS" ] && SWEPT="$SWEPT +$ROOTDOCS"
+both "docs: $SWEPT   doc lines changed since base: -$(wc -l < "$TMP/removed" | tr -d ' ') +$(wc -l < "$TMP/added" | tr -d ' ')   full report: $REPORT"
 both "findings: $(count T) retired-term, $(count R) referrer, $(count F) freshness, $(count S) structure; each needs a verdict (see the end)"
-both "" "== 1. RETIRED TERMS ($NTERMS of $NCAND candidates checked: phrases first, then words most removed) =="
+[ "$NALL" -gt "$NTHIS" ] && both "this debrief: $NALL findings across its sweeps; $((NALL - NTHIS)) raised earlier still need a verdict, though this sweep no longer shows them"
+both "" "== 1. RETIRED TERMS ($NTERMS of $NCAND candidates checked: up to $MAX_TERMS from the docs, phrases and acronyms first, then words most removed; up to $MAX_CODE_TERMS names from the code diff) =="
 if [ -s "$TMP/s1d.n" ]; then cat "$TMP/s1d.n" >> "$D"; cat "$TMP/s1r.n" >> "$REPORT"; else both "(no corpus hits for any candidate)"; fi
 if [ "$NDROP" -gt 0 ]; then
-  both "dropped by the cap of $MAX_TERMS ($NDROP): $(head -30 "$TMP/dropped" | tr '\n' ' ')$([ "$NDROP" -gt 30 ] && echo '…')"
+  both "dropped by the caps of $MAX_TERMS doc and $MAX_CODE_TERMS code terms ($NDROP): $(head -30 "$TMP/dropped" | tr '\n' ' ')$([ "$NDROP" -gt 30 ] && echo '…')"
   rp "all dropped candidates:"; sed 's/^/    /' "$TMP/dropped" >> "$REPORT"
 fi
 rp "all candidates checked:"; sed 's/^/    /' "$TMP/terms" >> "$REPORT"
