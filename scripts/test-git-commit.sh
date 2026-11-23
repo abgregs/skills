@@ -208,5 +208,29 @@ t "lockfiles are left out of the review size" 0 bash "$P" --size a.txt package-l
 has 'review size: 2 changed lines in 1 files \(1 lockfile or binary files left out\)'; ok
 
 echo
+echo "== the prose states what the lint checks"
+# SKILL.md tells the agent the lint's limits before it writes; each case reads a
+# limit from the prose and drives the lint with it, so the two cannot drift.
+SK="$REPO/git/skills/git-commit/SKILL.md"
+repo prose
+HEDGES="$(sed -nE 's/.*no hedges \(([^)]*)\).*/\1/p' "$SK" | tr -d ' ' | tr ',' '\n')"
+{ printf 'fix(api): retry the upload\n\n'; printf '%s\n' "$HEDGES" | sed 's/.*/- `upload` & retry twice/'; } > "$W/p-hedge.txt"
+t "each hedge SKILL.md names draws the lint's hedge warning" 0 bash "$P" --lint "$W/p-hedge.txt"
+[ "$(printf '%s\n' "$OUT" | grep -c 'hedge word')" = "$(printf '%s\n' "$HEDGES" | grep -c .)" ] || why "SKILL.md names $(printf '%s' "$HEDGES" | tr '\n' ' ')but the lint warned on fewer"; ok
+VAGUE="$(sed -nE 's/.*no vague openers \(([^)]*)\).*/\1/p' "$SK" | sed 's/, /\n/g')"
+{ printf 'fix(api): retry the upload\n\n'; printf '%s\n' "$VAGUE" | sed 's/.*/- & `upload`/'; } > "$W/p-vague.txt"
+t "each vague opener SKILL.md names draws the lint's warning" 0 bash "$P" --lint "$W/p-vague.txt"
+[ "$(printf '%s\n' "$OUT" | grep -c 'vague opener')" = "$(printf '%s\n' "$VAGUE" | grep -c .)" ] || why "SKILL.md names $(printf '%s' "$VAGUE" | tr '\n' ',') but the lint warned on fewer"; ok
+SMAX="$(sed -nE 's/.*one line of ([0-9]+) characters at most.*/\1/p' "$SK")"
+m p-subj-ok.txt "fix(x): $(pad $((SMAX - 8)))"; m p-subj-over.txt "fix(x): $(pad $((SMAX - 7)))"
+t "a subject at the limit SKILL.md states passes" 0 bash "$P" --lint "$W/p-subj-ok.txt"; ok
+t "a subject one past it fails" 1 bash "$P" --lint "$W/p-subj-over.txt"; has "max $SMAX"; ok
+BMAX="$(sed -nE 's/.*then 1–([0-9]+) dash bullets.*/\1/p' "$SK")"
+{ printf 'feat(api): add the orders endpoints\n\n'; seq 1 "$BMAX" | sed 's/.*/- `orders_&` returns page &/'; } > "$W/p-bul-ok.txt"
+{ printf 'feat(api): add the orders endpoints\n\n'; seq 1 $((BMAX + 1)) | sed 's/.*/- `orders_&` returns page &/'; } > "$W/p-bul-over.txt"
+t "a body at the bullet cap SKILL.md states passes" 0 bash "$P" --lint "$W/p-bul-ok.txt"; lacks 'LINT FAIL'; ok
+t "a body one bullet past it fails" 1 bash "$P" --lint "$W/p-bul-over.txt"; has "hard cap $BMAX"; ok
+
+echo
 echo "$PASS passed, $FAILS failed"
 [ "$FAILS" = 0 ]

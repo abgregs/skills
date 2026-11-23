@@ -58,6 +58,7 @@ skills/
 ├── scripts/
 │   ├── link-skills.sh           # per-group or all-group linking
 │   ├── check-evidence.sh        # names evidence batches whose skill changed since they ran
+│   ├── test-git-commit.sh       # regression cases for git-commit's preflight, lint, and commit gate
 │   └── test-git-create-pr.sh    # regression cases for git-create-pr's preflight, lint, and ship gate
 │
 ├── doc-driven-dev/              # skill group
