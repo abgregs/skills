@@ -60,6 +60,8 @@ skills/
 │   ├── check-evidence.sh        # names evidence batches whose skill changed since they ran
 │   ├── test-git-commit.sh       # regression cases for git-commit's preflight, lint, and commit gate
 │   └── test-git-create-pr.sh    # regression cases for git-create-pr's preflight, lint, and ship gate
+├── research/
+│   └── <skill-name>/            # maintainers' research behind a skill's stances; never installed with it
 │
 ├── doc-driven-dev/              # skill group
 │   ├── README.md
@@ -98,6 +100,7 @@ Every skill folder follows one layout. `SKILL.md` is what the agent loads; every
 **The pattern matters more than the two named folders.** `SKILL.md` carries only what the agent needs on every run; anything it reaches for sometimes — a worked example, a lookup table, research notes, collected data — moves into its own folder at the skill root and `SKILL.md` points at it. `examples/` and `references/` are the two cases that come up most often; add another folder when a skill accumulates a different kind of material.
 
 - `examples/` and `references/` are optional but encouraged: they carry context that would otherwise bloat `SKILL.md` or the README, and they keep a skill's material organized where the next edit can find it.
+- Research written for maintainers rather than the agent, such as the investigation behind a stance, lives at the repo root in `research/<skill-name>/`. The skills CLI installs a skill's whole folder, so material only maintainers read stays out of it, as the tests in the root `scripts/` do; a skill's `references/` holds what its `SKILL.md` points the agent at.
 - `README.md` is for people: what the skill does, how to invoke it, what it produces, and what else is in the folder. `SKILL.md` is for the agent. Do not restate one in the other.
 - `NOTICE.md` appears only when there is something to notice: a skill that embeds or depends on someone else's intellectual property, a registered trademark, or material with its own attribution terms.
 - `LICENSE.md` is the same MIT text in every skill, so each one stays usable when installed on its own.

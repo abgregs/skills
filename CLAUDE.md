@@ -11,6 +11,10 @@
   › Skill layout.
   **Why:** `SKILL.md` stays short enough to read on every run when worked
   examples, research, and data live beside it instead of inside it.
+- Research for maintainers, not the agent (the investigation behind a stance
+  or a decision), goes in root `research/<skill-name>/`, and tests go in root
+  `scripts/`. **Why:** the skills CLI installs a skill's whole folder, so
+  anything in it ships to every user and counts toward the evidence hash.
 - All skills must be registered in `.claude-plugin/plugin.json` with repo-root-relative paths (starting with `./`)
 
 ## Skill conventions
