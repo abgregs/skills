@@ -15,9 +15,9 @@ Run it after any non-trivial code task. Doc edits are confirmed with you before 
 
 - A classification of each proposed update: new rule, replacement, clarification, or removal, with the **Why:** lines the docs contract requires
 - The doc edits themselves, with `_index.md` entries kept current and files split at the contract's 150-line limit
-- A health check in which every finding has an ID and a verdict: retired terms, referrers of changed docs, stale stamps, and structure faults in the docs the change touched (dead links, orphans, folders with no index, entries with no summary, oversized files), each judged FIX or JUSTIFY, plus the reads for semantic staleness. Structure faults elsewhere are listed as standing, without a verdict, and feed one or two small structural fixes per run
+- A health check in which every finding has an ID and a verdict: retired terms, referrers of changed docs, stale stamps, structure faults in the docs the change touched, and new claims, each rule line the change added, checked against the code (dead links, orphans, folders with no index, entries with no summary, oversized files), each judged FIX or JUSTIFY, plus the reads for semantic staleness. Structure faults elsewhere are listed as standing, without a verdict, and feed one or two small structural fixes per run
 - One cross-cutting axis audited per run, to catch rules that are individually correct but compose badly across docs
-- An adversarial second pass before the summary, so a "double-check" follow-up finds nothing
+- An adversarial second pass before the summary, so a "double-check" follow-up finds no stale or wrong statement; an open item it adds is not a miss
 
 ## The detector's interface
 

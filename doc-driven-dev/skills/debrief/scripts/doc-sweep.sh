@@ -47,6 +47,8 @@ MAX_TERMS=40
 # Names from the code diff have a cap of their own: most never appear in a doc, so they must
 # not take the doc terms' places, and each costs only a grep.
 MAX_CODE_TERMS=200
+# New claims: the rule lines the change added, each checked against the code by its verdict.
+MAX_CLAIMS=40
 DIGEST_HITS=8
 REPORT_HITS=50
 
@@ -84,7 +86,7 @@ check_verdicts() {
   awk -F'\t' -v vf="$VERDICTS" '
     BEGIN {
       while ((getline line < vf) > 0) {
-        if (!match(line, /[TRFS]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f](-[0-9]+)?/)) continue
+        if (!match(line, /[TRFSN]-[0-9a-f][0-9a-f][0-9a-f][0-9a-f](-[0-9]+)?/)) continue
         id = substr(line, RSTART, RLENGTH); rest = substr(line, RSTART + RLENGTH)
         if (!match(toupper(rest), /^[^A-Z]*(FIX|JUSTIFY)/)) continue
         why = substr(rest, RLENGTH + 1); gsub(/^[^A-Za-z0-9]+/, "", why)
@@ -419,7 +421,30 @@ grep '^C' "$TMP/faults.tagged" | cut -f2- | while IFS= read -r fault; do
 done
 NSTANDING="$(wc -l < "$TMP/standing" | tr -d ' ')"
 
-# ---- 5. cross-cutting axes, for the axis audit (not findings)
+# ---- 5. new claims: every rule line the change added to the docs, the debrief's own edits
+# included, so each is checked against the code. A Why's text is history; a heading, an index
+# entry, or a line of two words or fewer is not a claim.
+: > "$TMP/s5"
+git diff -U0 --src-prefix=a/ --dst-prefix=b/ "$BASE" -- "$DOCS_DIR" $ROOTDOCS 2>/dev/null | awk '
+  /^\+\+\+ / { f = substr($0, 7); next }
+  /^@@ / { split($3, a, ","); n = substr(a[1], 2) + 0; next }
+  /^\+/ { print f "\t" n "\t" substr($0, 2); n++ }' > "$TMP/claims_raw"
+git ls-files --others --exclude-standard -- "$DOCS_DIR" 2>/dev/null | grep '\.md$' | while IFS= read -r f; do
+  awk -v f="$f" '{ print f "\t" NR "\t" $0 }' "$f"
+done >> "$TMP/claims_raw"
+awk -F'\t' '$1 !~ /(^|\/)_index\.md$/ {
+    t = $3; i = index(t, "**Why:**"); if (i) t = substr(t, 1, i - 1)
+    gsub(/^[ \t>*+-]+/, "", t); gsub(/[ \t]+$/, "", t)
+    if (t ~ /^#/ || t ~ /^```/ || t !~ /[A-Za-z]/) next
+    if (split(t, w, /[ \t]+/) < 3) next
+    print $1 "\t" $2 "\t" t }' "$TMP/claims_raw" > "$TMP/claims"
+NCLAIMS="$(awk 'END { print NR }' "$TMP/claims")"
+head -n "$MAX_CLAIMS" "$TMP/claims" | while IFS="$(printf '\t')" read -r f n c; do
+  finding N "claim:$f:$c" "$f:$n states: $c"
+  printf '%s  %s:%s  %s\n' "$LAST_ID" "$f" "$n" "$(printf '%s' "$c" | cut -c1-160)" >> "$TMP/s5"
+done
+
+# ---- 6. cross-cutting axes, for the axis audit (not findings)
 grep -n -iE 'last audited:' "$DOCS_DIR/_index.md" 2>/dev/null > "$TMP/axes" || true
 
 # Two findings with one key would share an ID; number the repeats.
@@ -430,8 +455,8 @@ touch "$FINDINGS"
 awk -F'\t' 'FILENAME == ARGV[1] { had[$1]; print; next } !($1 in had)' "$FINDINGS" "$TMP/this" > "$TMP/all" && cat "$TMP/all" > "$FINDINGS"
 NTHIS="$(awk 'END { print NR }' "$TMP/this")"; NALL="$(awk 'END { print NR }' "$FINDINGS")"
 # The section files carry the unnumbered IDs; renumber repeats there the same way.
-for s in s1d s1r s2 s3 s4; do
-  awk '{ if (match($0, /^[TRFS]-[0-9a-f]+/)) { id = substr($0, 1, RLENGTH); c[id]++; if (c[id] > 1) $0 = id "-" c[id] substr($0, RLENGTH + 1) } print }' "$TMP/$s" > "$TMP/$s.n"
+for s in s1d s1r s2 s3 s4 s5; do
+  awk '{ if (match($0, /^[TRFSN]-[0-9a-f]+/)) { id = substr($0, 1, RLENGTH); c[id]++; if (c[id] > 1) $0 = id "-" c[id] substr($0, RLENGTH + 1) } print }' "$TMP/$s" > "$TMP/$s.n"
 done
 count() { grep -c "^$1-" "$TMP/this" | tr -d ' '; }
 
@@ -441,7 +466,7 @@ both "base: $(short "$BASE")  ($SRC)"
 [ -n "$SKIPPED" ] && both "note: $SKIPPED"
 SWEPT="$DOCS_DIR"; [ -d "$DOCS_DIR" ] || SWEPT="no $DOCS_DIR folder"; [ -n "$ROOTDOCS" ] && SWEPT="$SWEPT +$ROOTDOCS"
 both "docs: $SWEPT   doc lines changed since base: -$(wc -l < "$TMP/removed" | tr -d ' ') +$(wc -l < "$TMP/added" | tr -d ' ')   full report: $REPORT"
-both "findings: $(count T) retired-term, $(count R) referrer, $(count F) freshness, $(count S) structure; each needs a verdict (see the end)"
+both "findings: $(count T) retired-term, $(count R) referrer, $(count F) freshness, $(count S) structure, $(count N) new-claim; each needs a verdict (see the end)"
 [ "$NALL" -gt "$NTHIS" ] && both "this debrief: $NALL findings across its sweeps; $((NALL - NTHIS)) raised earlier still need a verdict, though this sweep no longer shows them"
 both "" "== 1. RETIRED TERMS ($NTERMS of $NCAND candidates checked: up to $MAX_TERMS from the docs, phrases and acronyms first, then words most removed; up to $MAX_CODE_TERMS names from the code diff) =="
 if [ -s "$TMP/s1d.n" ]; then cat "$TMP/s1d.n" >> "$D"; cat "$TMP/s1r.n" >> "$REPORT"; else both "(no corpus hits for any candidate)"; fi
@@ -467,7 +492,13 @@ if [ "$NSTANDING" -gt 0 ]; then
   [ "$NSTANDING" -gt 10 ] && dg "    (+$((NSTANDING - 10)) more in the full report)"
   sed 's/^/    /' "$TMP/standing" >> "$REPORT"
 fi
-both "" "== 5. CROSS-CUTTING AXES in $DOCS_DIR/_index.md (for the axis audit; not findings) =="
+both "" "== 5. NEW CLAIMS ($NCLAIMS rule lines the change added; check each against the code: JUSTIFY with the file:line that shows it, or why no code can, or FIX what was wrong) =="
+if [ -s "$TMP/s5.n" ]; then cat "$TMP/s5.n" >> "$D"; cat "$TMP/s5.n" >> "$REPORT"; else both "(no rule lines added to the docs)"; fi
+if [ "$NCLAIMS" -gt "$MAX_CLAIMS" ]; then
+  both "(+$((NCLAIMS - MAX_CLAIMS)) more added lines past the cap of $MAX_CLAIMS, with no ID; they are listed in the full report: check them as well)"
+  rp "added lines past the cap:"; tail -n +"$((MAX_CLAIMS + 1))" "$TMP/claims" | awk -F'\t' '{ print "    " $1 ":" $2 "  " $3 }' >> "$REPORT"
+fi
+both "" "== 6. CROSS-CUTTING AXES in $DOCS_DIR/_index.md (for the axis audit; not findings) =="
 if [ -s "$TMP/axes" ]; then cat "$TMP/axes" >> "$D"; cat "$TMP/axes" >> "$REPORT"; else both "(no 'last audited:' lines; the axis audit creates the section)"; fi
 END="== END SWEEP — judge every finding ID, one line each: '<ID> FIX <what changed>' or '<ID> JUSTIFY <reason>', sent with: doc-sweep.sh --verdicts - <<'EOF' ... EOF; grep the session-decision terms the diff cannot know =="
 rp "" "$END"

@@ -48,7 +48,7 @@ Read every digest whole, never through `head`, `sed`, or `grep`. When it says it
 
 1. Run `doc-sweep.sh --scope`. When the task names its own range (a PR, a branch, a commit such as `47ee8a7..HEAD`), pass where it starts: `--scope --base origin/main`. Without `--base` the script takes the last debrief's mark when it is an ancestor of HEAD, else the merge-base with the default branch, else HEAD when only uncommitted changes exist; it prints the base it used and why, and the sweep in Step 5 reuses it. Committed, staged, unstaged, and untracked changes all count.
    - Exit 3, nothing changed since the base: tell the user there is nothing to debrief, and stop.
-   - Exit 4, no reliable base: ask the user which range to review, offering the recent commits it prints, then run `--scope --base <rev>`. With no user to ask, stop and say so.
+   - Exit 4, no reliable base: ask the user which range to review, offering the recent commits it prints, then run `--scope --base <rev>`. With no user to ask, stop and say so. A standing approval to take your recommended options does not cover this: which commits are the task is the user's to say, not a recommendation.
 2. Read the change with the `git diff <base>` command it prints, and `Read` each untracked file it lists, since `git diff` leaves those out. Summarize the change briefly: what was added, modified, or removed.
 
 ### Step 2: Review changes against docs
@@ -96,7 +96,7 @@ A filled-in proposal for a convention replacement, with its **Why:** line, is in
 
 If no updates are needed, say so explicitly and explain why the existing docs already cover the changes.
 
-Use AskUserQuestion to confirm the proposed changes before making them; a deletion of doc content needs its own approval there.
+Use AskUserQuestion to confirm the proposed changes before making them; a deletion of doc content needs its own approval there. Where AskUserQuestion is not available, ask in your reply and end the turn there, for this question and every later one: make no edit, commit, or mark until the user answers, since a mark ends the debrief with the question unanswered.
 
 ### Step 4: Execute doc updates
 
@@ -113,6 +113,7 @@ For each approved change:
    - **R** referrers: unchanged docs, `CLAUDE.md`, and `AGENTS.md` that link a changed doc or repeat one of its headings, or still name a doc the change renamed or deleted.
    - **F** freshness: an `Updated YYYY-MM-DD` stamp older than its file's last commit.
    - **S** structure in the docs this change touched: dead links, orphans, a folder with docs and no `_index.md`, an index entry with no summary, a file over the contract's limit.
+   - **N** new claims: each rule line the change added to the docs, this debrief's own edits included, with its file and line. A **Why:**'s text, headings, index entries, and lines of two words or fewer are left out; past 40, the rest are listed without an ID, to check all the same.
 
    Structure faults in docs the change did not touch are listed as standing, with no ID and no verdict; they are where the incremental structural improvements below come from. It also lists the cross-cutting axes with their `last audited:` dates, for the axis audit.
 2. **Judge every finding — the judge half.** Give each ID one line, `<ID> FIX <what you changed>` or `<ID> JUSTIFY <reason>`, and send them on stdin; there is no file to write:
@@ -124,7 +125,7 @@ For each approved change:
    EOF
    ```
 
-   A reason to keep a hit: a frozen artifact, or the same word in a different sense (a rule that bans "resets" legitimately contains the word). Make the fixes, with the user's confirmation for any that change a rule's substance.
+   A reason to keep a hit: a frozen artifact, or the same word in a different sense (a rule that bans "resets" legitimately contains the word). For an **N** finding, check the claim against the code and against what it names: `JUSTIFY` with the `file:line` that bears it out, or with why no code can, such as a policy or planned work; `FIX` with what was wrong, when the code says otherwise or the claim names something that does not exist. Make the fixes, with the user's confirmation for any that change a rule's substance.
 3. **Cover the detector's blind spots yourself:**
    (a) **session-decision terms**: vocabulary retired by THIS session's decisions that isn't on disk yet (a diff cannot see chat); grep the corpus for each;
    (b) **semantic staleness and absences**: read the two or three most-edited docs end to end, hunting for dead-model semantics written in fresh words and for missing entries (an incomplete list has no string to grep for);
@@ -142,7 +143,7 @@ For each approved change:
 
 ### Step 6: Adversarial second pass, then summary
 
-Before writing the summary, assume the user's next message will be: "double-check for stale items and cross-cutting concerns, just to be extra sure." Run that follow-up NOW, inside this debrief: re-run the sweep (the fixes just made may themselves have referrers), re-grep your session-decision terms, and take fresh full reads of the most-edited docs, deliberately trying to prove the first pass missed something. Fold anything found into this debrief's fixes. The quality bar for this skill is that a real "be extra sure" follow-up finds nothing.
+Before writing the summary, assume the user's next message will be: "double-check for stale items and cross-cutting concerns, just to be extra sure." Run that follow-up NOW, inside this debrief: re-run the sweep (the fixes just made may themselves have referrers), re-grep your session-decision terms, and take fresh full reads of the most-edited docs, deliberately trying to prove the first pass missed something. Fold anything found into this debrief's fixes. The quality bar for this skill is that a real "be extra sure" follow-up finds no stale or wrong statement in the docs; an open item it adds, such as work the code has not done yet, is not a miss.
 
 Then run `doc-sweep.sh --verdicts -` with a line for each ID the re-sweep added; the verdicts already given still count:
 - **exit 0**: every finding is judged; write the summary.

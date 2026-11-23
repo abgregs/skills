@@ -121,7 +121,7 @@ t "sweep: a Why: line naming the old term does not hide a doc that still uses it
 has 'term: workspace'; has 'docs/b.md'; lacks 'docs/a.md:2'; ok
 printf 'a folder can be archived\n  **Why:** replaces workspace; reason not recorded.\n' > docs/b.md; commit lagging
 t "sweep: rule text before a Why: on the same line still counts as a use" 0 bash "$SWEEP" --base HEAD~2
-has 'term: workspace  \(1 hits\)'; has 'docs/c.md:1:'; lacks 'docs/b.md:[0-9]'; ok
+has 'term: workspace  \(1 hits\)'; has 'docs/c.md:1:'; lacks '^    docs/b.md:[0-9]'; ok
 echo 'a folder has an owner. **Why:** a workspace replaced the team' > docs/c.md; commit fixed
 t "sweep: a term left only in Why: lines is history, not a finding" 0 bash "$SWEEP" --base HEAD~3
 lacks 'term: workspace'; ok
@@ -171,6 +171,22 @@ echo "# Auth" > docs/auth.md; echo "See [auth](auth.md) and [old](old.md)." > do
 git mv docs/auth.md docs/authentication.md; git rm -q docs/old.md; commit "rename and delete"
 t "sweep: a doc that still names a renamed or deleted doc is a finding" 0 bash "$SWEEP" --base HEAD~1
 has 'docs/login.md names docs/auth.md, renamed to docs/authentication.md'; has 'docs/login.md names docs/old.md, deleted'; lacks 'names changed docs/old.md'; ok
+
+# New claims: each rule line the change added, the debrief's own included, is checked against the code.
+repo sweep-claims; mkdir -p docs
+printf -- '- [a.md](a.md): money\n' > docs/_index.md; printf '# A\n\n- Keep amounts as you like.\n' > docs/a.md; commit base
+printf '# A\n\n- Store every amount as an integer count of cents.\n  **Why:** floats drifted in March.\n- See money.\n' > docs/a.md
+printf -- '- [a.md](a.md): money, stored as integer cents\n- [b.md](b.md): owners\n' > docs/_index.md
+echo '- New docs list their owners here.' > docs/b.md
+t "sweep: an added rule line is a new claim, with its file and line" 0 bash "$SWEEP" --base HEAD
+has 'N-[0-9a-f]{4}  docs/a.md:3  Store every amount as an integer count of cents\.'; has 'N-[0-9a-f]{4}  docs/b.md:1  New docs list their owners here\.'
+lacks 'N-.*floats drifted'; lacks 'N-.*_index\.md'; lacks 'N-.*See money'; lacks 'N-.*  # A'; ok
+NID="$(findings | grep 'Store every amount' | cut -f1)"
+t "sweep: --mark is refused while a new claim has no verdict" 2 bash "$SWEEP" --mark
+has "UNJUDGED   $NID"; ok
+printf '# A\n\nIntro.\n\n- Store every amount as an integer count of cents.\n' > docs/a.md
+t "sweep: a new claim keeps its ID when its line moves" 0 bash "$SWEEP" --base HEAD
+has "$NID  docs/a.md:5  Store every amount"; ok
 
 # ============================== stamps
 
@@ -283,7 +299,7 @@ echo guide > docs/guides/start.md
 printf -- '- [conventions](conventions/_index.md): how code is written\n' > docs/_index.md
 commit
 t "sweep: structure finds the five faults the contract names" 0 bash "$SWEEP" --base HEAD~1
-has 'S-[0-9a-f]{4}  dead link: docs/conventions/style.md -> missing.md'; lacks 'example.com'
+has 'S-[0-9a-f]{4}  dead link: docs/conventions/style.md -> missing.md'; lacks 'dead link: .*example.com'
 has 'orphan: docs/conventions/lost.md'; has 'no index: docs/guides holds 1 docs'
 has 'no summary: docs/conventions/_index.md:4'; has 'over 150 lines: docs/conventions/long.md \(151\)'; ok
 printf '## [guides/](guides/start.md)\nHow to get started with the project.\n' >> docs/_index.md
