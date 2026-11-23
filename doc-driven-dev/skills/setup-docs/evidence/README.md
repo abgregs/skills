@@ -4,7 +4,7 @@ Recorded runs that back the claims in the skill's README. The case is a fixture 
 
 | Case | Claim | Result |
 |---|---|---|
-| [0001](0001.md) | Step 1 takes its facts from one audit call, judges every doc the audit lists, and changes nothing before the user confirms the plan | one unpiped audit call; all five docs categorized, the oversized root `ARCHITECTURE.md` as relocate and split by its three sections; the missing structure named from the audit; the rules' reasons asked for, not supplied; `git status` clean |
+| [0001](0001.md) | Step 1 takes its facts from one audit call, judges every doc the audit lists, and changes nothing before the user confirms the plan | all three runs: one unpiped audit call; every doc categorized, the oversized root `ARCHITECTURE.md` as relocate and split by its three sections; the missing structure named from the audit; the rules' reasons asked for, not supplied; `git status` clean |
 
 ## Not covered
 
@@ -16,14 +16,14 @@ The README describes behavior no recorded run exercises yet:
 
 ## Method
 
-| Item | Batch 6 |
+| Item | Batch 10 |
 |---|---|
-| Date | 2026-11-21 |
-| Model, every arm | `claude-sonnet-5-5` |
+| Date | 2026-11-22 |
+| Model, every arm | `claude-opus-5-5` |
 | Harness | Claude Code 2.1.322 |
 | Skill under test | this folder's parent, as committed with this evidence |
-| Skill hash | `39ada343179e` |
-| Runs | one, in parallel with the brief and debrief arms of the batch |
+| Skill hash | `e64ba8f3024e` |
+| Runs | three, each in parallel with the brief and debrief arms of its run |
 
 The skill hash covers what the agent reads at run time (`SKILL.md`, `scripts/`); `bash scripts/check-evidence.sh` from the repo root says whether the skill has changed since, and `--hash <skill-dir>` prints the value to record for a new batch.
 
@@ -39,4 +39,4 @@ Every arm ran `claude -p` from inside its fixture repo with `--setting-sources p
 
 ## History
 
-Before this version the skill had no script: Step 1 asked the agent to `Glob` the docs and count sizes, indexes, and orphans itself, and the last 30 days of the maintainer's transcripts hold no `/setup-docs` run to show how that went. Batches 1 and 2 ran this case on earlier audit states (`8d4434b987c3`, both batches) with the same result as the recorded run; the audit changed after them only in naming the sections a cut digest leaves out. Batches 3 and 4 (`41113290de66`) matched it too. After them the docs contract, shared with brief and debrief, gained a rule on where a **Why:**'s reason comes from, because a debrief run wrote a cause no file stated; in batch 6 this case asked for the reasons behind the rules it found instead. Batch 7 ran it twice more on `39ada343179e`, beside a copy of the three skills reworded to Simplified Technical English; all four runs, two of each, matched the recorded result.
+Before this version the skill had no script: Step 1 asked the agent to `Glob` the docs and count sizes, indexes, and orphans itself, and the last 30 days of the maintainer's transcripts hold no `/setup-docs` run to show how that went. Batches 1 and 2 ran this case on earlier audit states (`8d4434b987c3`, both batches) with the same result as the recorded run; the audit changed after them only in naming the sections a cut digest leaves out. Batches 3 and 4 (`41113290de66`) matched it too. After them the docs contract, shared with brief and debrief, gained a rule on where a **Why:**'s reason comes from, because a debrief run wrote a cause no file stated; in batch 6 this case asked for the reasons behind the rules it found instead. Batch 7 ran it twice more on `39ada343179e`, beside a copy of the three skills reworded to Simplified Technical English; all four runs, two of each, matched the recorded result. After it, Step 1 says to write the script's full path in every call, because batch 7's runs met harness refusals for a path held in a shell variable; batch 8 (`e64ba8f3024e`) ran this case twice on Opus with the recorded result. Batch 10 ran it three more times on the same state, with the recorded result in each.

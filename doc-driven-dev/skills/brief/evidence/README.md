@@ -4,9 +4,9 @@ Recorded runs that back the claims in the skill's README. Each case is a fixture
 
 | Case | Claim | Result |
 |---|---|---|
-| [0001](0001.md) | On a corpus whose old scout report ran to 88 KB, the agent reads the digest in one call, reads the shortlisted docs in full, cites each rule on its line, and names a tension between two rules before it plans | one unpiped scout call of 7.8 KB; nine files read; 12 citations, each on its rule's line; the 10-minute cache against the 5-minute deletion rule named before the plan; two questions; no code written |
-| [0002](0002.md) | With no `docs/`, the skill neither blocks nor sends the user to `/setup-docs` when `CLAUDE.md` holds conventions | the scout prints `CLAUDE.md` as the fallback; all three conventions cited on their lines; `/setup-docs` named only among the non-blocking gaps; two questions, then a plan, no code written |
-| [0003](0003.md) | A digest cut at its budget still carries the shortlist, so the briefing matches the uncut one | the digest cut inside section 3, naming sections 4 and 5 as left out; the same `docs/` rules on the same lines as 0001; the full report opened, with no change to the briefing |
+| [0001](0001.md) | On a corpus whose old scout report ran to 88 KB, the agent reads the digest in one call, reads the shortlisted docs in full, cites each rule on its line, and names a tension between two rules before it plans | all three runs: one unpiped scout call of 11.1 KB; `caching.md` shortlisted among generated noise that shares the task's words, `data-lifecycle.md` reached through its link; 11 to 13 citations, each on its rule's line; the tension named before the plan; no code written |
+| [0002](0002.md) | With no `docs/`, the skill neither blocks nor sends the user to `/setup-docs` when `CLAUDE.md` holds conventions | all three runs: the scout prints `CLAUDE.md` as the fallback; all three conventions cited on their lines; `/setup-docs` named, in two runs, only among the non-blocking gaps; no code written |
+| [0003](0003.md) | A digest cut at its budget still carries the shortlist, so the briefing matches the uncut one | all three runs: the digest cut inside section 3, naming sections 4 and 5 as left out; the same `docs/` rules on the same lines as 0001; the full report opened |
 
 ## Not covered
 
@@ -21,14 +21,14 @@ The README describes behavior no recorded run exercises yet:
 
 ## Method
 
-| Item | Batch 6 |
+| Item | Batch 10 |
 |---|---|
-| Date | 2026-11-21 |
-| Model, every arm | `claude-sonnet-5-5` |
+| Date | 2026-11-22 |
+| Model, every arm | `claude-opus-5-5` |
 | Harness | Claude Code 2.1.322 |
 | Skill under test | this folder's parent, as committed with this evidence |
-| Skill hash | `7e3a0b2c7088` |
-| Runs | one per case, all three in parallel with the debrief and setup-docs arms of the same batch |
+| Skill hash | `2d03bccb38f3` |
+| Runs | three per case, each run of all three in parallel with the debrief and setup-docs arms of the same batch |
 
 The skill hash covers what the agent reads at run time (`SKILL.md`, `scripts/`); `bash scripts/check-evidence.sh` from the repo root says whether the skill has changed since, and `--hash <skill-dir>` prints the value to record for a new batch.
 
@@ -55,5 +55,7 @@ Batches 1 to 4 ran on earlier states of this version; none is recorded as a case
 | 3 | `a9e32cbbcc63` | 0003 again left the report closed, and again matched 0001's rules and lines. Step 1 had told the agent to read the left-out sections before judging the shortlist; followed in neither run, with no cost to either, it now says to open the report when the shortlist misses a doc the task needs. |
 | 4 | `ddc58bd08254` | All three cases as recorded in batch 6, except that 0003 left the report closed. Nothing to change from the runs. After it, the docs contract, shared with debrief, gained a rule on where a **Why:**'s reason comes from, because a debrief run wrote a cause no file stated; batch 6 reran these cases on that state. |
 | 7 | `7e3a0b2c7088` | No change: the recorded state, run twice per case beside a copy of the three skills reworded to Simplified Technical English. All six runs matched the recorded results. The reworded copy tied, with one citation a line off in a run that read `CLAUDE.md` with `cat`; it was not adopted, for debrief's result (see debrief's evidence History). |
+| 8 | `2d03bccb38f3` | On Opus and on the fixture with generated noise, after the scout began ranking by rarity. Every case passed in both runs. |
+| 10 | `2d03bccb38f3` | The current runs: the same skill, three runs per case. Every case passed in all three. |
 
 **Review after batch 7.** The 600 generated tables held none of the task's words, so the shortlist was never under pressure. Fifteen of them now carry the columns a real schema has (`user_id`, `list_id`, `cache_version`). Ranked by how many task terms a doc mentions, those tables filled the shortlist for two of the three term sets the batch 7 runs passed, and `caching.md` dropped out. The scout now ranks by rarity, each matched term adding 1 / (docs holding it), and `caching.md` ranks first or second for all three. The next batch reruns 0001 and 0003 on this fixture, on Opus.
