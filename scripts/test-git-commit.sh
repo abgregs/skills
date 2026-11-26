@@ -92,6 +92,13 @@ t "an emoji fails where the repo's subjects are ASCII" 1 bash "$P" --lint "$W/em
 t "a docs commit with Why: fails" 1 bash "$P" --lint "$W/docswhy.txt"; has 'a docs commit takes no Why:'; ok
 t "a Why: that is not the first bullet fails" 1 bash "$P" --lint "$W/whysecond.txt"; has 'Why: bullet must be the first bullet'; ok
 t "an authorship trailer fails" 1 bash "$P" --lint "$W/trailer.txt"; has 'authorship trailer'; ok
+# On macOS a bare mktemp ignores TMPDIR and writes to the per-user temp dir,
+# which an agent's Bash sandbox denies; this stub fails a bare call the same way.
+mkdir -p "$W/sandbox-bin"
+printf '%s\n' '#!/bin/sh' 'for a; do case "$a" in -*) ;; *) exec /usr/bin/mktemp "$@" ;; esac; done' \
+  'echo "mktemp: Operation not permitted" >&2; exit 1' > "$W/sandbox-bin/mktemp"; chmod +x "$W/sandbox-bin/mktemp"
+t "an authorship trailer still fails where a bare mktemp is denied" 1 env PATH="$W/sandbox-bin:$PATH" bash "$P" --lint "$W/trailer.txt"
+has 'authorship trailer'; ok
 t "seven bullets fail" 1 bash "$P" --lint "$W/seven.txt"; has 'hard cap 6'; ok
 t "an -ing bullet warns and still passes" 0 bash "$P" --lint "$W/ing.txt"; has '^LINT WARN: bullet opens with an -ing word'; ok
 t "a body with no blank line 2 fails" 1 bash "$P" --lint "$W/noblank.txt"; has 'line 2 must be blank'; ok

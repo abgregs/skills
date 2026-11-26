@@ -157,7 +157,10 @@ if [ "${1:-}" = "--lint" ]; then
   # message that legitimately QUOTES an attribution string in backticks (e.g. a
   # commit about this very lint) does not trip the wall. sed is line-preserving,
   # so reported line numbers still point into the real message.
-  PROV_STRIP="$(mktemp)"
+  # A template under TMPDIR: on macOS a bare mktemp ignores TMPDIR, and a
+  # sandbox that denies the default temp dir would leave the check no file.
+  PROV_STRIP="$(mktemp "${TMPDIR:-/tmp}/commit-prov.XXXXXX")" \
+    || { echo "LINT FAIL: no temp file under ${TMPDIR:-/tmp}, so the provenance check cannot run"; exit 1; }
   sed 's/`[^`]*`//g' "$MSG" > "$PROV_STRIP"
   PROV_FILE="$PROV_STRIP"; PROV_WHAT="commit message"; PROV_ORIG="$MSG"
   # --- provenance wall (identical block in git-create-pr/scripts/pr-preflight.sh)
