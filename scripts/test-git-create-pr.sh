@@ -143,6 +143,13 @@ t "--keep fails a body without its line" 1 bash "$P" --lint "$W/ok.md" --keep "$
 t "--keep passes a body with its line" 0 bash "$P" --lint "$W/ok-qa.md" --keep "$W/keep-extra.txt"; ok
 t "mermaid labels with brackets are not placeholders" 0 bash "$P" --lint "$W/mermaid.md" --title-file "$(ttl 'Report the tap started from inside its loop')"; ok
 t "provenance inside a mermaid block fails" 1 bash "$P" --lint "$W/mermaid-prov.md" --title-file "$(ttl 'Report the tap started')"; has 'attribution byline'; ok
+# On macOS a bare mktemp ignores TMPDIR and writes to the per-user temp dir,
+# which an agent's Bash sandbox denies; this stub fails a bare call the same way.
+mkdir -p "$W/sandbox-bin"
+printf '%s\n' '#!/bin/sh' 'for a; do case "$a" in -*) ;; *) exec /usr/bin/mktemp "$@" ;; esac; done' \
+  'echo "mktemp: Operation not permitted" >&2; exit 1' > "$W/sandbox-bin/mktemp"; chmod +x "$W/sandbox-bin/mktemp"
+t "provenance still fails where a bare mktemp is denied" 1 env PATH="$W/sandbox-bin:$PATH" bash "$P" --lint "$W/mermaid-prov.md" --title-file "$(ttl 'Report the tap started')"
+has 'attribution byline'; ok
 t "a hedge inside a mermaid block warns" 2 bash "$P" --lint "$W/mermaid-hedge.md" --title-file "$(ttl 'Report the tap started')"; has 'hedge word'; ok
 t "provenance quoted in a bash fence stays legal" 0 bash "$P" --lint "$W/fenced-prov.md"; ok
 

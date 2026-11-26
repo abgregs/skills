@@ -149,7 +149,7 @@ other_people_lines() { # <pr-url> <pr-number> <current-body-file>
   slug="$(printf '%s' "$1" | sed -nE 's#^https?://[^/]+/([^/]+)/([^/]+)/pull/[0-9]+.*#\1/\2#p')"
   [ -n "$slug" ] || return 1
   owner="${slug%%/*}"; name="${slug#*/}"
-  dir="$(mktemp -d)"
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/pr-history.XXXXXX")"
   if ! gh api graphql -f owner="$owner" -f name="$name" -F number="$2" \
        -f query='query($owner:String!,$name:String!,$number:Int!){viewer{login} repository(owner:$owner,name:$name){pullRequest(number:$number){userContentEdits(first:100){nodes{editedAt editor{login} diff}}}}}' \
        --jq '.data.viewer.login, (.data.repository.pullRequest.userContentEdits.nodes | sort_by(.editedAt) | .[] | "\u001e\(.editor.login // "")", (.diff // ""))' \
@@ -261,7 +261,8 @@ if [ "${1:-}" = "--lint" ]; then
   # their text, not the agent's, so a ticked box there stays ticked.
   BODY_VIS="$(md_visible "$BODY")"
   BODY_TRIM="$(printf '%s\n' "$BODY_VIS" | sed -E 's/^[[:space:]]+//')"
-  KEEPF="$(mktemp)"
+  KEEPF="$(mktemp "${TMPDIR:-/tmp}/pr-keep.XXXXXX")" \
+    || { echo "LINT FAIL: no temp file under ${TMPDIR:-/tmp}, so the kept lines cannot be checked"; exit 1; }
   { [ -z "$EXIST" ] || keep_lines "$EXIST"
     [ -z "$KEEPX" ] || sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' "$KEEPX" | grep -v '^$'
   } | awk '!seen[$0]++' > "$KEEPF"
@@ -399,7 +400,10 @@ if [ "${1:-}" = "--lint" ]; then
     }
     f != "" && m { print; next }
     { print "" }' "$BODY")"
-  PROV_STRIP="$(mktemp)"
+  # A template under TMPDIR: on macOS a bare mktemp ignores TMPDIR, and a
+  # sandbox that denies the default temp dir would leave the check no file.
+  PROV_STRIP="$(mktemp "${TMPDIR:-/tmp}/pr-prov.XXXXXX")" \
+    || { echo "LINT FAIL: no temp file under ${TMPDIR:-/tmp}, so the provenance check cannot run"; exit 1; }
   awk 'NR == FNR { m[FNR] = $0; next } { print ($0 == "" && (FNR in m)) ? m[FNR] : $0 }' \
     <(printf '%s\n' "$MERMAID") <(printf '%s\n' "$PROSE") > "$PROV_STRIP"
   PROV_FILE="$PROV_STRIP"; PROV_WHAT="PR body"; PROV_ORIG="$BODY"
@@ -563,7 +567,7 @@ if [ "${1:-}" = "--ship" ]; then
     exit "$1"
   }
 
-  STATE="$(mktemp)"
+  STATE="$(mktemp "${TMPDIR:-/tmp}/pr-state.XXXXXX")"
   OUT="$(PR_SHIP_STATE="$STATE" bash "$SELF" ${BASE_ARG:+"$BASE_ARG"} 2>&1)"; RC=$?
   if [ "$RC" != 0 ]; then
     ABORT="$(printf '%s\n' "$OUT" | sed -n '/^ABORT/,$p')"
